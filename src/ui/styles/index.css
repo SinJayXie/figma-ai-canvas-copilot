@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  /* UI 的滚动都由内部容器管理；禁止文档级滚动，避免设置页 push 动画产生横向滚动条 */
+  html,
+  body {
+    overflow: hidden;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #f2f2f7;
+    color: #000000;
+  }
+
+  .dark body {
+    background: #000000;
+    color: #ffffff;
+  }
+
+  /* 全局禁止选中/复制：只有 AI 回复正文与输入控件允许选择 */
+  html,
+  body,
+  #app {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* AI 回复正文（ChatMessage 内的 Markdown 容器，含代码块）允许选中复制 */
+  .md-body {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* 输入框 / 下拉框 / 可编辑区域保持可选中、可编辑 */
+  input,
+  textarea,
+  select,
+  [contenteditable='true'] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  ::selection {
+    background: rgba(0, 122, 255, 0.22);
+  }
+
+  /* iOS 风格细滚动条（扁平、无轨道背景） */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(142, 142, 147, 0.45) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: rgba(142, 142, 147, 0.45);
+  }
+}

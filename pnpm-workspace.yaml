@@ -1,0 +1,5 @@
+# pnpm v12 起项目级 pnpm 配置统一存放在本文件
+# allowBuilds：显式允许执行安装构建脚本的依赖（替代旧版 onlyBuiltDependencies）
+allowBuilds:
+  esbuild: true
+  vue-demi: true

@@ -1,0 +1,13 @@
+{
+  "name": "AI Canvas Copilot",
+  "id": "ai-canvas-copilot-dev",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "用户可自定义任意大模型 API 地址（如 DeepSeek、通义千问或本地开发服务器），插件需按用户配置动态访问不同域名"
+  },
+  "documentAccess": "dynamic-page"
+}

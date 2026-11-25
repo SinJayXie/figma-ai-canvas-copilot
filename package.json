@@ -1,0 +1,39 @@
+{
+  "name": "ai-canvas-copilot",
+  "version": "1.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "AI Canvas Copilot Figma 插件：通过自然语言对话在画布上生成与修改原生可编辑图层",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SinJayXie/figma-ai-canvas-copilot.git"
+  },
+  "scripts": {
+    "dev": "concurrently \"vite build --watch\" \"vite build --watch -c vite.config.code.ts\"",
+    "build": "vite build && vite build -c vite.config.code.ts",
+    "package": "npm run build && node scripts/package.mjs",
+    "package:zip": "node scripts/package.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "marked": "^18.2.1",
+    "pinia": "^2.3.1",
+    "tokenx": "^2.2.1",
+    "vue": "^3.4.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.110.0",
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.19",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "^2.1.9"
+  }
+}

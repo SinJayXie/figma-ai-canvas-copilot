@@ -1,0 +1,664 @@
+// Serializers — shared read/write helpers for converting Figma node data to JSON.
+
+export const isMixed = (value: any) => typeof value === "symbol";
+
+// Style-name lookups dominate the cost of serializing a large tree: up to three
+// getStyleByIdAsync calls per node (fill/stroke/effect) plus one for text, while
+// design-system files reuse the same handful of style IDs across thousands of
+// nodes. Caches the in-flight promise rather than the resolved value, because
+// siblings are serialized with Promise.all and would all miss a value-only cache
+// before any of them filled it.
+// Entries expire after a short TTL instead of being cleared on every request, so
+// repeated reads within one agent turn reuse the lookups. Style mutation
+// capabilities call clearStyleCache() to invalidate immediately.
+const STYLE_CACHE_TTL_MS = 5000;
+const styleNameCache = new Map<string, { promise: Promise<string | undefined>; ts: number }>();
+
+export const clearStyleCache = () => styleNameCache.clear();
+
+const styleName = (id: string): Promise<string | undefined> => {
+  const now = Date.now();
+  const cached = styleNameCache.get(id);
+  if (cached && now - cached.ts < STYLE_CACHE_TTL_MS) return cached.promise;
+  const pending = figma.getStyleByIdAsync(id).then((style) => style?.name);
+  styleNameCache.set(id, { promise: pending, ts: now });
+  return pending;
+};
+
+// Round floating-point pixel values to 2 decimal places.
+// Figma sometimes returns values like 123.99999999999999 instead of 124.
+const pixelRound = (v: number) => Math.round(v * 100) / 100;
+
+export const toHex = (color: any) => {
+  const clamp = (v: any) => Math.min(255, Math.max(0, Math.round(v * 255)));
+  const [r, g, b] = [clamp(color.r), clamp(color.g), clamp(color.b)];
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+};
+
+export const serializePaints = (paints: any) => {
+  if (isMixed(paints)) return "mixed";
+
+  if (!paints || !Array.isArray(paints)) return undefined;
+
+  const result = paints
+    .filter((paint: any) => paint.type === "SOLID" && "color" in paint)
+    .map((paint: any) => {
+      const hex = toHex(paint.color);
+      const opacity = paint.opacity != null ? paint.opacity : 1;
+      if (opacity === 1) return hex;
+      return (
+        hex +
+        Math.round(opacity * 255)
+          .toString(16)
+          .padStart(2, "0")
+      );
+    });
+
+  return result.length > 0 ? result : undefined;
+};
+
+export const getBounds = (node: any) => {
+  if ("x" in node && "y" in node && "width" in node && "height" in node) {
+    return {
+      x: pixelRound(node.x),
+      y: pixelRound(node.y),
+      width: pixelRound(node.width),
+      height: pixelRound(node.height),
+    };
+  }
+
+  return undefined;
+};
+
+const serializeRgba = (color: any) => {
+  if (!color || typeof color !== "object") return undefined;
+  const hex = toHex(color);
+  const a = color.a != null ? color.a : 1;
+  if (a === 1) return hex;
+  return hex + Math.round(a * 255).toString(16).padStart(2, "0");
+};
+
+export const serializeEffects = (effects: any) => {
+  if (isMixed(effects)) return "mixed";
+  if (!effects || !Array.isArray(effects) || effects.length === 0) return undefined;
+  return effects.map((e: any) => {
+    const base: any = { type: e.type };
+    if (e.visible === false) base.visible = false;
+    if (e.blendMode && e.blendMode !== "NORMAL") base.blendMode = e.blendMode;
+    switch (e.type) {
+      case "DROP_SHADOW":
+      case "INNER_SHADOW":
+        return {
+          ...base,
+          color: serializeRgba(e.color),
+          offset: e.offset ? { x: e.offset.x, y: e.offset.y } : undefined,
+          radius: e.radius,
+          spread: e.spread || undefined,
+        };
+      case "LAYER_BLUR":
+      case "BACKGROUND_BLUR":
+        return { ...base, radius: e.radius };
+      case "NOISE": {
+        const out: any = {
+          ...base,
+          noiseType: e.noiseType,
+          noiseSize: e.noiseSize,
+          density: e.density,
+          color: serializeRgba(e.color),
+        };
+        if (e.noiseType === "DUOTONE" && e.secondaryColor) {
+          out.secondaryColor = serializeRgba(e.secondaryColor);
+        }
+        if (e.noiseType === "MULTITONE" && e.opacity != null) {
+          out.opacity = e.opacity;
+        }
+        return out;
+      }
+      default:
+        return { ...base, ...e };
+    }
+  });
+};
+
+export const serializeStyles = async (node: any) => {
+  const styles: any = {};
+
+  if ("fills" in node) {
+    // Prefer named style over raw fill values when a style is applied.
+    if (node.fillStyleId && typeof node.fillStyleId === "string") {
+      const name = await styleName(node.fillStyleId);
+      if (name) styles.fillStyle = name;
+    }
+    const fills = serializePaints(node.fills);
+    if (fills !== undefined) styles.fills = fills;
+  }
+
+  if ("strokes" in node) {
+    if (node.strokeStyleId && typeof node.strokeStyleId === "string") {
+      const name = await styleName(node.strokeStyleId);
+      if (name) styles.strokeStyle = name;
+    }
+    const strokes = serializePaints(node.strokes);
+    if (strokes !== undefined) styles.strokes = strokes;
+  }
+
+  if ("cornerRadius" in node) {
+    const cr = isMixed(node.cornerRadius) ? "mixed" : node.cornerRadius;
+    if (cr !== 0) styles.cornerRadius = cr;
+  }
+
+  if ("paddingLeft" in node) {
+    styles.padding = {
+      top: node.paddingTop,
+      right: node.paddingRight,
+      bottom: node.paddingBottom,
+      left: node.paddingLeft,
+    };
+  }
+
+  if ("effects" in node) {
+    if (node.effectStyleId && typeof node.effectStyleId === "string") {
+      const name = await styleName(node.effectStyleId);
+      if (name) styles.effectStyle = name;
+    }
+    const effects = serializeEffects(node.effects);
+    if (effects !== undefined) styles.effects = effects;
+  }
+
+  return styles;
+};
+
+export const serializeLineHeight = (lineHeight: any) => {
+  if (isMixed(lineHeight)) return "mixed";
+
+  if (!lineHeight || lineHeight.unit === "AUTO") return undefined;
+
+  return { value: lineHeight.value, unit: lineHeight.unit };
+};
+
+export const serializeLetterSpacing = (letterSpacing: any) => {
+  if (isMixed(letterSpacing)) return "mixed";
+
+  if (!letterSpacing || letterSpacing.value === 0) return undefined;
+
+  return { value: letterSpacing.value, unit: letterSpacing.unit };
+};
+
+export const serializeText = async (node: any, base: any) => {
+  let fontFamily: any;
+  let fontStyle: any;
+
+  if (typeof node.fontName === "symbol") {
+    fontFamily = "mixed";
+    fontStyle = "mixed";
+  } else if (node.fontName) {
+    fontFamily = node.fontName.family;
+    fontStyle = node.fontName.style;
+  }
+
+  const textStyleName =
+    node.textStyleId && typeof node.textStyleId === "string"
+      ? await styleName(node.textStyleId)
+      : undefined;
+
+  return Object.assign({}, base, {
+    characters: node.characters,
+    styles: Object.assign({}, base.styles, {
+      ...(textStyleName ? { textStyle: textStyleName } : {}),
+      fontSize: isMixed(node.fontSize) ? "mixed" : node.fontSize,
+      fontFamily,
+      fontStyle,
+      fontWeight: isMixed(node.fontWeight) ? "mixed" : node.fontWeight,
+      textDecoration: isMixed(node.textDecoration)
+        ? "mixed"
+        : node.textDecoration !== "NONE"
+          ? node.textDecoration
+          : undefined,
+      lineHeight: serializeLineHeight(node.lineHeight),
+      letterSpacing: serializeLetterSpacing(node.letterSpacing),
+      textAlignHorizontal: isMixed(node.textAlignHorizontal)
+        ? "mixed"
+        : node.textAlignHorizontal,
+    }),
+  });
+};
+
+// `depth` caps how many levels of children are serialized. At the cut-off the
+// node reports `childCount` instead of `children`, matching what
+// get_design_context returns for a truncated branch.
+// `budget` caps the total node count across a request so a huge page cannot
+// freeze the sandbox or produce a postMessage that is too large.
+export interface SerializeBudget {
+  /** 剩余可序列化节点数 */
+  remaining: number
+  /** 是否因预算耗尽发生截断 */
+  truncated: boolean
+}
+
+export const createSerializeBudget = (maxNodes: number): SerializeBudget => ({
+  remaining: Math.max(0, Math.floor(maxNodes)),
+  truncated: false,
+});
+
+export const serializeNode = async (
+  node: any,
+  depth = Infinity,
+  budget?: SerializeBudget,
+): Promise<any> => {
+  if (budget) {
+    if (budget.remaining <= 0) {
+      budget.truncated = true;
+      return {
+        id: node.id,
+        name: node.name,
+        type: node.type,
+        ...("children" in node ? { childCount: node.children.length } : {}),
+        truncated: true,
+      };
+    }
+    budget.remaining -= 1;
+  }
+
+  const styles = await serializeStyles(node);
+  const base = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    bounds: getBounds(node),
+    styles,
+    ...serializeExtra(node),
+  };
+  if (node.type === "TEXT") return serializeText(node, base);
+  if ("children" in node) {
+    if (depth <= 0) {
+      return Object.assign({}, base, {
+        childCount: node.children.length,
+        ...(budget?.truncated ? { truncated: true } : {}),
+      });
+    }
+    const children = await Promise.all(
+      node.children.map((child: any) => serializeNode(child, depth - 1, budget)),
+    );
+    return Object.assign({}, base, {
+      children,
+      ...(budget?.truncated ? { truncated: true } : {}),
+    });
+  }
+  return base;
+};
+
+// deduplicateStyles does a two-pass walk over a serialized node tree.
+// First pass: count how many times each fills/strokes array value appears.
+// Second pass: replace values that appear more than once with a short ref key.
+// Returns the rewritten tree and a globalVars.styles map (or undefined if nothing was deduped).
+export const deduplicateStyles = (tree: any): { tree: any; globalVars: Record<string, any> | undefined } => {
+  // Pass 1: count occurrences of each serialized fill/stroke value
+  const counts = new Map<string, number>();
+  const countWalk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    const s = node.styles;
+    if (s) {
+      if (Array.isArray(s.fills)) {
+        const k = JSON.stringify(s.fills);
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      if (Array.isArray(s.strokes)) {
+        const k = JSON.stringify(s.strokes);
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+    }
+    if (Array.isArray(node.children)) node.children.forEach(countWalk);
+  };
+  countWalk(tree);
+
+  // Build ref map for values that appear more than once
+  let counter = 0;
+  const keyToRef = new Map<string, string>();
+  const refs: Record<string, any> = {};
+  for (const [key, count] of counts) {
+    if (count > 1) {
+      const ref = `s${++counter}`;
+      keyToRef.set(key, ref);
+      refs[ref] = JSON.parse(key);
+    }
+  }
+  if (keyToRef.size === 0) return { tree, globalVars: undefined };
+
+  // Pass 2: replace repeated values with ref keys
+  const replaceWalk = (node: any): any => {
+    if (!node || typeof node !== "object") return node;
+    let result = node;
+    const s = node.styles;
+    if (s) {
+      let newStyles = s;
+      if (Array.isArray(s.fills)) {
+        const ref = keyToRef.get(JSON.stringify(s.fills));
+        if (ref) newStyles = { ...newStyles, fills: ref };
+      }
+      if (Array.isArray(s.strokes)) {
+        const ref = keyToRef.get(JSON.stringify(s.strokes));
+        if (ref) newStyles = { ...newStyles, strokes: ref };
+      }
+      if (newStyles !== s) result = { ...node, styles: newStyles };
+    }
+    if (Array.isArray(node.children)) {
+      const newChildren = node.children.map(replaceWalk);
+      result = { ...result, children: newChildren };
+    }
+    return result;
+  };
+
+  return { tree: replaceWalk(tree), globalVars: { styles: refs } };
+};
+
+export const serializeVariableValue = (value: any) => {
+  if (typeof value !== "object" || value === null) return value;
+
+  if ("type" in value && value.type === "VARIABLE_ALIAS") {
+    return { type: "VARIABLE_ALIAS", id: value.id };
+  }
+
+  if ("r" in value && "g" in value && "b" in value) {
+    return {
+      type: "COLOR",
+      r: value.r,
+      g: value.g,
+      b: value.b,
+      a: "a" in value ? value.a : 1,
+    };
+  }
+
+  return value;
+};
+
+// ---------------------------------------------------------------------------
+// Extra fidelity fields for design-to-code.
+// Adds non-solid paints (gradients / images / video), layer visual props,
+// layout, mixed text segments, and Motion data (keyframe tracks, animations,
+// animation styles). Fields are emitted only when they carry information:
+// serializeNode runs on every node of a tree, so a field that repeats a Figma
+// default would be paid for once per node. Motion and text-segment reads are
+// guarded so an unsupported API never breaks a call.
+// ---------------------------------------------------------------------------
+
+const jsonSafe = (value: any) => {
+  try {
+    return JSON.parse(
+      JSON.stringify(value, (_k, v) => (typeof v === "symbol" ? "mixed" : v)),
+    );
+  } catch (_e) {
+    return undefined;
+  }
+};
+
+const tryRead = (fn: () => any) => {
+  try {
+    return fn();
+  } catch (e) {
+    return { __error: String(e && (e as any).message ? (e as any).message : e) };
+  }
+};
+
+const isEmpty = (v: any) =>
+  v == null ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+const serializeFullPaint = (p: any) => {
+  const out: any = { type: p.type };
+  if (p.visible === false) out.visible = false;
+  if (p.opacity != null && p.opacity !== 1) out.opacity = p.opacity;
+  if (p.blendMode && p.blendMode !== "NORMAL") out.blendMode = p.blendMode;
+  if (p.type === "SOLID") {
+    out.color = serializeRgba({ ...p.color, a: 1 });
+  } else if (typeof p.type === "string" && p.type.startsWith("GRADIENT_")) {
+    out.gradientStops = (p.gradientStops || []).map((s: any) => ({
+      position: s.position,
+      color: serializeRgba(s.color),
+    }));
+    out.gradientTransform = jsonSafe(p.gradientTransform);
+  } else if (p.type === "IMAGE") {
+    out.scaleMode = p.scaleMode;
+    out.imageHash = p.imageHash;
+    if (p.imageTransform) out.imageTransform = jsonSafe(p.imageTransform);
+    if (p.scalingFactor != null) out.scalingFactor = p.scalingFactor;
+    if (p.rotation) out.rotation = p.rotation;
+    if (p.filters) out.filters = jsonSafe(p.filters);
+  } else if (p.type === "VIDEO") {
+    out.scaleMode = p.scaleMode;
+    out.videoHash = p.videoHash;
+  } else {
+    Object.assign(out, jsonSafe(p));
+  }
+  return out;
+};
+
+const serializeFullPaints = (paints: any) => {
+  if (isMixed(paints)) return "mixed";
+  if (!Array.isArray(paints) || paints.length === 0) return undefined;
+  // Only emit when something is lost by the solid-only serializer.
+  const lossy = paints.some(
+    (p: any) => p.type !== "SOLID" || p.visible === false || (p.blendMode && p.blendMode !== "NORMAL"),
+  );
+  return lossy ? paints.map(serializeFullPaint) : undefined;
+};
+
+const MOTION_KEYS = ["timelines", "manualKeyframeTracks", "animations", "animationStyles"];
+
+const serializeMotion = (node: any) => {
+  const motion: any = {};
+  for (const key of MOTION_KEYS) {
+    if (!(key in node)) continue;
+    // The Motion API is in beta. A getter that throws would throw for every
+    // node in the tree, so skip the key instead of repeating the error.
+    let value: any;
+    try {
+      value = jsonSafe(node[key]);
+    } catch (_e) {
+      continue;
+    }
+    if (!isEmpty(value)) motion[key] = value;
+  }
+  // timelines alone (shared by every descendant) is not interesting.
+  const keys = Object.keys(motion);
+  if (keys.length === 0 || (keys.length === 1 && keys[0] === "timelines")) return undefined;
+  return motion;
+};
+
+const serializeTextSegments = (node: any) => {
+  if (node.type !== "TEXT" || typeof node.getStyledTextSegments !== "function") return undefined;
+  const fields = [
+    "fontName", "fontSize", "fontWeight", "fills", "lineHeight",
+    "letterSpacing", "textCase", "textDecoration",
+  ];
+  const mixed = fields.some((f) => isMixed(node[f]));
+  if (!mixed) return undefined;
+  return tryRead(() =>
+    node.getStyledTextSegments(fields).map((s: any) => ({
+      start: s.start,
+      end: s.end,
+      characters: s.characters,
+      fontName: s.fontName,
+      fontSize: s.fontSize,
+      fontWeight: s.fontWeight,
+      fills: serializeFullPaints(s.fills) ?? serializePaints(s.fills),
+      lineHeight: jsonSafe(s.lineHeight),
+      letterSpacing: jsonSafe(s.letterSpacing),
+      textCase: s.textCase,
+      textDecoration: s.textDecoration,
+    })),
+  );
+};
+
+export const serializeExtra = (node: any) => {
+  const x: any = {};
+  if (node.visible === false) x.visible = false;
+  if ("opacity" in node && node.opacity !== 1) x.opacity = node.opacity;
+  if ("blendMode" in node && node.blendMode && node.blendMode !== "PASS_THROUGH" && node.blendMode !== "NORMAL")
+    x.blendMode = node.blendMode;
+  if ("rotation" in node && node.rotation) x.rotation = node.rotation;
+  if ("isMask" in node && node.isMask) {
+    x.isMask = true;
+    if ("maskType" in node) x.maskType = node.maskType;
+  }
+  if ("clipsContent" in node && node.clipsContent) x.clipsContent = true;
+
+  if ("fills" in node) {
+    const f = serializeFullPaints(node.fills);
+    if (f !== undefined) x.fillsFull = f;
+  }
+  if ("strokes" in node && Array.isArray(node.strokes) && node.strokes.length > 0) {
+    const s = serializeFullPaints(node.strokes);
+    if (s !== undefined) x.strokesFull = s;
+    x.stroke = {
+      weight: isMixed(node.strokeWeight) ? jsonSafe({
+        top: node.strokeTopWeight, right: node.strokeRightWeight,
+        bottom: node.strokeBottomWeight, left: node.strokeLeftWeight,
+      }) : node.strokeWeight,
+      align: node.strokeAlign,
+      dashPattern: isEmpty(node.dashPattern) ? undefined : jsonSafe(node.dashPattern),
+    };
+  }
+  if ("cornerRadius" in node && isMixed(node.cornerRadius)) {
+    x.cornerRadii = {
+      topLeft: node.topLeftRadius, topRight: node.topRightRadius,
+      bottomRight: node.bottomRightRadius, bottomLeft: node.bottomLeftRadius,
+    };
+  }
+  if ("cornerSmoothing" in node && node.cornerSmoothing) x.cornerSmoothing = node.cornerSmoothing;
+
+  if ("layoutMode" in node && node.layoutMode && node.layoutMode !== "NONE") {
+    x.layout = {
+      mode: node.layoutMode,
+      itemSpacing: node.itemSpacing,
+      primaryAxisAlignItems: node.primaryAxisAlignItems,
+      counterAxisAlignItems: node.counterAxisAlignItems,
+    };
+    if (node.layoutWrap === "WRAP") {
+      x.layout.wrap = "WRAP";
+      if (node.counterAxisSpacing != null) x.layout.counterAxisSpacing = node.counterAxisSpacing;
+    }
+  }
+  // FIXED sizing and MIN/MIN constraints are what Figma gives a new node.
+  if ("layoutSizingHorizontal" in node) {
+    const h = node.layoutSizingHorizontal;
+    const v = node.layoutSizingVertical;
+    if ((h && h !== "FIXED") || (v && v !== "FIXED")) x.sizing = { h, v };
+  }
+  if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE") x.absolute = true;
+  if ("constraints" in node && node.constraints) {
+    const { horizontal, vertical } = node.constraints;
+    if (horizontal !== "MIN" || vertical !== "MIN") x.constraints = { horizontal, vertical };
+  }
+
+  if (node.type === "TEXT") {
+    const text: any = {};
+    if (node.textAutoResize && node.textAutoResize !== "WIDTH_AND_HEIGHT") text.autoResize = node.textAutoResize;
+    if (node.textAlignVertical && node.textAlignVertical !== "TOP") text.alignVertical = node.textAlignVertical;
+    if (isMixed(node.textCase)) text.textCase = "mixed";
+    else if (node.textCase && node.textCase !== "ORIGINAL") text.textCase = node.textCase;
+    if (node.textTruncation && node.textTruncation !== "DISABLED") {
+      text.truncation = node.textTruncation;
+      if (node.maxLines != null) text.maxLines = node.maxLines;
+    }
+    if (node.paragraphSpacing) text.paragraphSpacing = node.paragraphSpacing;
+    if (Object.keys(text).length > 0) x.text = text;
+    const segs = serializeTextSegments(node);
+    if (segs) x.textSegments = segs;
+  }
+
+  const motion = serializeMotion(node);
+  if (motion) x.motion = motion;
+
+  // 变量绑定：单值字段输出 { type, id }，数组字段（fills/strokes/effects/layoutGrids）输出别名数组
+  try {
+    const boundVariables = node.boundVariables;
+    if (boundVariables && typeof boundVariables === "object") {
+      const bv: any = {};
+      for (const field of Object.keys(boundVariables)) {
+        const value = boundVariables[field];
+        if (Array.isArray(value)) {
+          const aliases = value
+            .filter((item: any) => item && typeof item === "object" && typeof item.id === "string")
+            .map((item: any) => ({ type: "VARIABLE_ALIAS", id: item.id }));
+          if (aliases.length > 0) bv[field] = aliases;
+        } else if (value && typeof value === "object" && typeof value.id === "string") {
+          bv[field] = { type: "VARIABLE_ALIAS", id: value.id };
+        }
+      }
+      if (Object.keys(bv).length > 0) x.boundVariables = bv;
+    }
+  } catch (_e) {
+    // 旧版本 API 缺失时跳过
+  }
+
+  // 节点级显式变量模式：Record<collectionId, modeId>
+  try {
+    const modes = node.explicitVariableModes;
+    if (modes && typeof modes === "object" && !isEmpty(modes)) x.explicitVariableModes = modes;
+  } catch (_e) {
+    // 不支持该 API 的节点直接跳过
+  }
+
+  if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
+    const defs = tryRead(() => node.componentPropertyDefinitions);
+    const safe = defs && typeof defs === "object" && !("__error" in defs) ? jsonSafe(defs) : undefined;
+    if (safe && typeof safe === "object" && Object.keys(safe).length > 0) {
+      x.componentPropertyDefinitions = safe;
+    }
+  }
+
+  if (node.type === "COMPONENT" || node.type === "INSTANCE") {
+    const variant = tryRead(() => node.variantProperties);
+    if (variant && typeof variant === "object" && !("__error" in variant) && !isEmpty(variant)) {
+      x.variantProperties = variant;
+    }
+  }
+
+  const propertyReferences = tryRead(() => node.componentPropertyReferences);
+  if (
+    propertyReferences &&
+    typeof propertyReferences === "object" &&
+    !("__error" in propertyReferences) &&
+    !isEmpty(propertyReferences)
+  ) {
+    x.componentPropertyReferences = propertyReferences;
+  }
+
+  return x;
+};
+
+/**
+ * compact 上下文用的精简扩展：复用 serializeExtra，去掉重复的全量 paints / 文本分段，
+ * 并补上排版关键字段（字族/字号/字重/行高/字距/水平对齐）。
+ */
+export const serializeCompactExtra = (node: any) => {
+  const extra = serializeExtra(node);
+  delete extra.fillsFull;
+  delete extra.strokesFull;
+  delete extra.textSegments;
+
+  if (node.type === "TEXT") {
+    const text: any = extra.text ?? {};
+    if (isMixed(node.fontName)) {
+      text.fontFamily = "mixed";
+      text.fontStyle = "mixed";
+    } else if (node.fontName) {
+      text.fontFamily = node.fontName.family;
+      text.fontStyle = node.fontName.style;
+    }
+    if (isMixed(node.fontSize)) text.fontSize = "mixed";
+    else if (node.fontSize != null) text.fontSize = node.fontSize;
+    if (isMixed(node.fontWeight)) text.fontWeight = "mixed";
+    else if (node.fontWeight != null) text.fontWeight = node.fontWeight;
+    const lineHeight = serializeLineHeight(node.lineHeight);
+    if (lineHeight !== undefined) text.lineHeight = lineHeight;
+    const letterSpacing = serializeLetterSpacing(node.letterSpacing);
+    if (letterSpacing !== undefined) text.letterSpacing = letterSpacing;
+    if (isMixed(node.textAlignHorizontal)) text.align = "mixed";
+    else if (node.textAlignHorizontal) text.align = node.textAlignHorizontal;
+    extra.text = text;
+  }
+
+  return Object.keys(extra).length > 0 ? extra : undefined;
+};
