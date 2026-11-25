@@ -8,6 +8,9 @@ export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
 
 export type SendKey = 'enter' | 'ctrl-enter'
 
+/** 界面语言：auto 跟随系统 / Figma，其余为固定语言 */
+export type LanguageSetting = 'auto' | 'zh-CN' | 'zh-TW' | 'en-US'
+
 /** 内置服务商 id（custom 表示完全自定义的 OpenAI 兼容地址） */
 export type ProviderId =
   | 'deepseek'
@@ -104,6 +107,8 @@ export interface ModelEntry {
 
 /** 用户自定义快捷指令 */
 export interface QuickCommandConfig {
+  /** 稳定 id（内置指令由运行时生成；自定义指令可留空） */
+  id?: string
   /** 指令名，以 / 开头，如 /骨架 */
   label: string
   /** 候选列表中的说明 */
@@ -131,6 +136,8 @@ export interface PluginConfig {
   followTheme: boolean
   /** 发送快捷键 */
   sendKey: SendKey
+  /** 界面语言；auto 跟随系统 / Figma */
+  language: LanguageSetting
   /** 用户自定义快捷指令（与内置指令合并，同名覆盖内置） */
   customCommands: QuickCommandConfig[]
 }
@@ -318,6 +325,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   taskMode: false,
   followTheme: true,
   sendKey: 'enter',
+  language: 'auto',
   customCommands: []
 }
 
@@ -405,6 +413,13 @@ function normalizeReasoningEffort(value: unknown): ReasoningEffort {
   return value === 'off' || value === 'low' || value === 'medium' || value === 'high' || value === 'max'
     ? value
     : DEFAULT_GENERATION.reasoningEffort
+}
+
+/** 界面语言只允许固定枚举，非法值回退 auto */
+function normalizeLanguage(value: unknown): LanguageSetting {
+  return value === 'auto' || value === 'zh-CN' || value === 'zh-TW' || value === 'en-US'
+    ? value
+    : DEFAULT_CONFIG.language
 }
 
 /** 生成参数归一化：限幅 + 兜底默认值 */
@@ -601,6 +616,7 @@ export function normalizeConfig(raw?: Partial<PluginConfig> | null): PluginConfi
     activeModelId: active.id,
     model: active.model,
     taskMode: result.taskMode === true,
+    language: normalizeLanguage(result.language),
     customCommands: normalizeCustomCommands(result.customCommands)
   }
 }

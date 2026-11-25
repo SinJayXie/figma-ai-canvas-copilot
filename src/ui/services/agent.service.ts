@@ -14,6 +14,7 @@ import { parseToolCalls } from '../utils/toolCallParser'
 import { generateId } from '../utils/uuid'
 import { useChatStore, normalizeTasks, type ChatMsg } from '../store/chat'
 import { useConfigStore } from '../store/config'
+import { t } from '../i18n'
 import { bridge } from './bridge.service'
 import { confirmAction } from '../composables/useConfirm'
 import { invokeCapability, isDestructiveCapability, WRITE_CAPABILITIES } from './capabilities.service'
@@ -176,7 +177,7 @@ function serializeToolResult(data: unknown): string {
   } catch {
     json = String(data)
   }
-  return json.length > MAX_TOOL_RESULT_CHARS ? `${json.slice(0, MAX_TOOL_RESULT_CHARS)}…（已截断）` : json
+  return json.length > MAX_TOOL_RESULT_CHARS ? `${json.slice(0, MAX_TOOL_RESULT_CHARS)}${t('TRUNCATED_SUFFIX')}` : json
 }
 
 /**
@@ -185,12 +186,12 @@ function serializeToolResult(data: unknown): string {
  */
 function describeEmptyResult(result: StreamChatResult, maxTokens: number): string {
   if (result.finishReason === 'length') {
-    return `输出被 max_tokens（${maxTokens}）截断：思考内容占满了输出额度，未产出最终结果。请到「设置 → 模型参数」把最大输出 Token 调到 8192 以上，或关闭思考模式后重试`
+    return t('BLOCKED_BY_MAX_TOKENS', { maxTokens })
   }
   if (result.reasoning?.trim()) {
-    return `模型只返回了思考内容（${result.reasoning.length} 字符），未产出正文或 tool_calls。可直接重试；若反复出现，请调大最大输出 Token 或关闭思考模式`
+    return t('EMPTY_REASONING_RESPONSE', { count: result.reasoning.length })
   }
-  return '模型未返回 tool_calls，且没有任何文本内容'
+  return t('EMPTY_MODEL_RESPONSE')
 }
 
 /** 注入系统提示词的记忆条数 / 字符上限（控制 token 占用） */
@@ -253,8 +254,8 @@ function describeLegacyOpsMemory(ops: NodeOp[]): string {
 
 /** 上下文步骤的 detail：同时展示画布字符数与会话记忆条数，便于确认记忆是否生效 */
 function contextStepDetail(canvasContext: string, memoryCount: number): string {
-  if (!canvasContext) return `未获取到 · 记忆 ${memoryCount} 条`
-  return `${canvasContext.length} 字符 · 记忆 ${memoryCount} 条`
+  if (!canvasContext) return t('CONTEXT_MEMORY_EMPTY', { count: memoryCount })
+  return t('CONTEXT_MEMORY_DETAIL', { chars: canvasContext.length, count: memoryCount })
 }
 
 /** 单条节点的记忆描述：名称 / 类型 / 原生 id / 尺寸 / 文本内容 */
@@ -403,14 +404,14 @@ function scopeTaskOps(ops: NodeOp[]): { ops: NodeOp[]; dropped: string[] } {
   for (const op of ops) {
     if (op.action === 'update') {
       if (!state.nodes.has(op.id)) {
-        dropped.push(`禁止修改任务外的节点：${op.id || op.name}`)
+        dropped.push(t('DROPPED_TASK_NODE', { target: op.id || op.name }))
         continue
       }
       kept.push(op)
       continue
     }
     if (op.parent && op.parent !== 'page' && !state.containers.has(op.parent)) {
-      dropped.push(`禁止在任务外的容器创建：${op.name || op.type}`)
+      dropped.push(t('DROPPED_TASK_CONTAINER', { target: op.name || op.type }))
       continue
     }
     kept.push(op)
@@ -539,7 +540,7 @@ function describeReadCall(type: string, call: StreamToolCall, content: string): 
       typeof (data as Record<string, unknown>)?.count === 'number'
         ? ((data as Record<string, unknown>).count as number)
         : list.length
-    return `${type}${query ? ` "${query}"` : ''} → ${count} 项${items.length ? `: ${items.join('; ')}` : ''}`
+    return `${type}${query ? ` "${query}"` : ''} → ${t('COUNT_ITEMS', { count })}${items.length ? `: ${items.join('; ')}` : ''}`
   } catch {
     return null
   }
@@ -575,22 +576,22 @@ async function verifyTaskResult(state: TaskRunState): Promise<string[]> {
       >('get_nodes_info', { nodeIds: ids.slice(0, 200) })
       const found = new Set((nodes ?? []).map((node) => node?.id).filter(Boolean) as string[])
       const missing = ids.filter((id) => !found.has(id))
-      if (missing.length > 0) issues.push(`${missing.length} 个任务图层未找到（可能被删除或未落位）`)
+      if (missing.length > 0) issues.push(t('MISSING_TASK_LAYERS', { count: missing.length }))
       for (const node of nodes ?? []) {
         if (!node) continue
         if ((node.width ?? 1) < 0.5 || (node.height ?? 1) < 0.5) {
-          issues.push(`「${node.name || node.id}」尺寸异常`)
+          issues.push(t('NODE_SIZE_ANOMALY', { name: node.name || node.id }))
         }
       }
     } catch {
-      issues.push('无法回读生成结果（get_nodes_info 失败）')
+      issues.push(t('VERIFY_READ_FAILED'))
     }
   }
 
   const tasks = useChatStore().tasks
   if (tasks.length > 0) {
     const unfinished = tasks.filter((task) => task.status !== 'completed').length
-    if (unfinished > 0) issues.push(`任务计划仍有 ${unfinished} 项未完成`)
+    if (unfinished > 0) issues.push(t('UNFINISHED_TASKS', { count: unfinished }))
   }
 
   // 整任务规范复核（与每步 lint 一致，但覆盖全部已应用 ops）
@@ -603,9 +604,9 @@ async function verifyTaskResult(state: TaskRunState): Promise<string[]> {
 /** 任务模式单步紧凑摘要（只保留新建/修改数量） */
 function appliedDetailShort(applied: ApplyOpsResult): string {
   const parts: string[] = []
-  if (applied.created > 0) parts.push(`新建 ${applied.created}`)
-  if (applied.updated > 0) parts.push(`修改 ${applied.updated}`)
-  return parts.length > 0 ? parts.join(' · ') : '无变化'
+  if (applied.created > 0) parts.push(t('TASK_STEP_CREATED', { count: applied.created }))
+  if (applied.updated > 0) parts.push(t('TASK_STEP_UPDATED', { count: applied.updated }))
+  return parts.length > 0 ? parts.join(' · ') : t('NO_CHANGES')
 }
 
 /** 展示验证结果并结束任务 */
@@ -617,26 +618,26 @@ async function verifyTaskAndFinish(assistantId: string | undefined, state: TaskR
 
   const chatStore = useChatStore()
   const stepId = `task-verify-${Date.now()}`
-  chatStore.addStep(assistantId, { id: stepId, icon: 'verify', label: '验证生成结果' })
+  chatStore.addStep(assistantId, { id: stepId, icon: 'verify', label: t('VERIFY_RESULT') })
   const issues = await verifyTaskResult(state)
   chatStore.updateStep(assistantId, stepId, {
     status: issues.length > 0 ? 'failed' : 'done',
     detail:
       issues.length > 0
-        ? `${issues.length} 项待确认 · 新建 ${state.createdCount} / 修改 ${state.updatedCount}`
-        : `通过 · 新建 ${state.createdCount} / 修改 ${state.updatedCount}`,
+        ? t('TASK_VERIFY_ISSUES', { count: issues.length, created: state.createdCount, updated: state.updatedCount })
+        : t('TASK_VERIFY_OK', { created: state.createdCount, updated: state.updatedCount }),
   })
 
   // 本次任务成果总结（保持一行，避免啰嗦）
   const totalSteps = state.planSize || chatStore.tasks.length
-  const parts = [`新建 ${state.createdCount} 个图层`]
-  if (state.updatedCount > 0) parts.push(`修改 ${state.updatedCount} 个图层`)
-  const stats = `本次任务共 ${totalSteps} 步：${parts.join('，')}。`
+  const parts = [t('TASK_STEP_CREATED', { count: state.createdCount })]
+  if (state.updatedCount > 0) parts.push(t('TASK_STEP_UPDATED', { count: state.updatedCount }))
+  const stats = t('TASK_GOAL_STATS', { steps: totalSteps, parts: parts.join(t('LIST_SEPARATOR')) })
 
   const verifyText =
     issues.length > 0
-      ? `验证提示：${issues.slice(0, 5).join('；')}`
-      : '验证通过：任务图层均已落位，设计规范无遗留问题。'
+      ? t('TASK_VERIFY_HINT', { issues: issues.slice(0, 5).join(t('LIST_SEPARATOR')) })
+      : t('TASK_VERIFY_PASSED')
   const current = chatStore.messages.find((message) => message.id === assistantId)?.content ?? ''
   chatStore.setContent(assistantId, `${current}\n\n${stats}\n${verifyText}`.trim())
 }
@@ -659,7 +660,7 @@ function scheduleTaskStep(): void {
     const state = taskRun
     if (!state?.approved) return
     if (state.step >= TASK_MAX_STEPS) {
-      finishTask(undefined, `任务已达 ${TASK_MAX_STEPS} 步上限`)
+      finishTask(undefined, t('TASK_STEP_LIMIT', { count: TASK_MAX_STEPS }))
       return
     }
     state.step += 1
@@ -717,15 +718,15 @@ export function clearTaskList(): void {
 
 /** 结果摘要（步骤行 detail）：数组/带 count 的对象给出数量，其余取前几个字段名 */
 function summarizeResult(data: unknown): string {
-  if (Array.isArray(data)) return `${data.length} 项`
+  if (Array.isArray(data)) return t('COUNT_ITEMS', { count: data.length })
   if (data && typeof data === 'object') {
     const count = (data as { count?: unknown }).count
-    if (typeof count === 'number') return `${count} 项`
+    if (typeof count === 'number') return t('COUNT_ITEMS', { count })
     const keys = Object.keys(data)
-    return keys.length ? keys.slice(0, 3).join('、') : '完成'
+    return keys.length ? keys.slice(0, 3).join('、') : t('DONE')
   }
   if (typeof data === 'string') return data.slice(0, 40)
-  return '完成'
+  return t('DONE')
 }
 
 /** 从参数中读取能力名（用于步骤文案，解析失败回退 figma_call） */
@@ -740,15 +741,15 @@ function figmaCallType(call: StreamToolCall): string {
 
 /** 破坏性能力的中文动作名（用于确认弹窗与步骤文案） */
 const DESTRUCTIVE_LABELS: Record<string, string> = {
-  delete_nodes: '删除图层',
-  delete_page: '删除页面',
-  delete_style: '删除样式',
-  delete_variable: '删除变量',
-  delete_variable_collection: '删除变量集合',
-  detach_instance: '分离组件实例',
-  reset_instance_overrides: '重置实例覆盖',
-  delete_variable_mode: '删除变量模式',
-  delete_annotation_category: '删除批注分类',
+  delete_nodes: 'DELETE_LAYER',
+  delete_page: 'DELETE_PAGE',
+  delete_style: 'DELETE_STYLE',
+  delete_variable: 'DELETE_VARIABLE',
+  delete_variable_collection: 'DELETE_VARIABLE_COLLECTION',
+  detach_instance: 'DETACH_INSTANCE',
+  reset_instance_overrides: 'RESET_INSTANCE_OVERRIDES',
+  delete_variable_mode: 'DELETE_VARIABLE_MODE',
+  delete_annotation_category: 'DELETE_ANNOTATION_CATEGORY',
 }
 
 /** 破坏性调用的确认文案：尽量带上受影响节点，帮助用户判断影响范围 */
@@ -758,14 +759,18 @@ function describeDestructiveCall(type: string, call: StreamToolCall): string {
     const args = JSON.parse(call.args || '{}') as { nodeIds?: unknown }
     const ids = Array.isArray(args.nodeIds) ? args.nodeIds.map(String) : []
     if (ids.length > 0) {
-      target = `\n目标：${ids.slice(0, 3).join('、')}${
-        ids.length > 3 ? ` 等 ${ids.length} 个节点` : ''
+      const shown = `${ids.slice(0, 3).join(', ')}${
+        ids.length > 3 ? t('TARGET_MORE', { count: ids.length }) : ''
       }`
+      target = `\n${t('TARGET_LABEL', { target: shown })}`
     }
   } catch {
     // 参数无法解析时只提示动作名
   }
-  return `AI 准备执行「${DESTRUCTIVE_LABELS[type] ?? type}」，该操作会修改画布且无法撤销。${target}`
+  return t('DESTRUCTIVE_CONFIRM', {
+    action: t(DESTRUCTIVE_LABELS[type] ?? type),
+    target,
+  })
 }
 
 /** 执行单个 figma_call：解析参数 → 调用沙箱能力 → 写操作成功后刷新画布上下文 */
@@ -774,14 +779,16 @@ async function executeFigmaCall(call: StreamToolCall): Promise<FigmaCallResult> 
   try {
     args = JSON.parse(call.args || '{}')
   } catch (error) {
-    const message = `参数解析失败：${error instanceof Error ? error.message : String(error)}`
+    const message = t('PARAM_PARSE_FAILED', {
+      message: error instanceof Error ? error.message : String(error),
+    })
     return { ok: false, type: 'figma_call', content: message, detail: message.slice(0, 60) }
   }
 
   const payload = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
   const type = typeof payload.type === 'string' ? payload.type : ''
   if (!type) {
-    return { ok: false, type: 'figma_call', content: '缺少能力名 type 参数', detail: '缺少 type' }
+    return { ok: false, type: 'figma_call', content: t('MISSING_CAPABILITY_TYPE'), detail: t('MISSING_TYPE') }
   }
 
   // 兼容模型把能力参数直接放在顶层（如 { type: 'set_fills', color: '#FF0000' }）：
@@ -800,14 +807,14 @@ async function executeFigmaCall(call: StreamToolCall): Promise<FigmaCallResult> 
         return {
           ok: false,
           type,
-          content: '任务模式：请先在操作卡片点击「应用」完成本任务授权，再执行写操作。',
-          detail: '等待任务授权',
+          content: t('TASK_NEED_APPROVAL'),
+          detail: t('WAITING_FOR_TASK_APPROVAL'),
         }
       }
       const outside = resolvedNodeIds.filter((id) => !taskRun!.nodes.has(id))
       if (outside.length > 0) {
-        const message = `任务模式：只能修改本任务创建的节点。已阻止：${outside.slice(0, 5).join(', ')}`
-        return { ok: false, type, content: message, detail: '超出任务范围' }
+        const message = t('TASK_OUTSIDE_NODES', { ids: outside.slice(0, 5).join(', ') })
+        return { ok: false, type, content: message, detail: t('OUTSIDE_TASK_SCOPE') }
       }
     }
     const data = await invokeCapability(type, {
@@ -820,7 +827,7 @@ async function executeFigmaCall(call: StreamToolCall): Promise<FigmaCallResult> 
     return { ok: true, type, content: serializeToolResult(data), detail: summarizeResult(data) }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, type, content: `调用失败：${message}`, detail: message.slice(0, 60) }
+    return { ok: false, type, content: t('CALL_FAILED', { message }), detail: message.slice(0, 60) }
   }
 }
 
@@ -921,14 +928,14 @@ export async function runAgent(
       chatStore.addStep(assistantId, {
         id: sid('step'),
         icon: 'apply',
-        label: `第 ${taskRun.step} 步`,
+        label: t('TASK_STEP', { step: taskRun.step }),
         status: 'running',
       })
     }
     // 画布上下文：优先当前选中图层，无选中时自动取当前页；任务续跑省略整页上下文以提速
     const canvasContext = compactTask ? '' : await fetchCanvasContext()
     if (!compactTask) {
-      chatStore.addStep(assistantId, { id: sid('context'), icon: 'context', label: '读取画布上下文' })
+      chatStore.addStep(assistantId, { id: sid('context'), icon: 'context', label: t('READ_CANVAS_CONTEXT') })
       chatStore.updateStep(assistantId, sid('context'), {
         status: canvasContext ? 'done' : 'failed',
         detail: contextStepDetail(canvasContext, actionMemory.count),
@@ -982,7 +989,7 @@ export async function runAgent(
           chatStore.addStep(assistantId, {
             id: sid('context'),
             icon: 'context',
-            label: '读取画布上下文',
+            label: t('READ_CANVAS_CONTEXT'),
             status: canvasContext ? 'done' : 'failed',
             detail: contextStepDetail(canvasContext, actionMemory.count),
           })
@@ -1002,7 +1009,7 @@ export async function runAgent(
 
       let outcome: RoundOutcome = {
         kind: 'retry',
-        error: `工具调用轮次已达上限（${maxToolRounds} 轮），仍未得到最终结果`,
+        error: t('TOOL_ROUNDS_LIMIT', { count: maxToolRounds }),
       }
       /** 本次尝试中成功执行的写能力次数 */
       let attemptWrites = 0
@@ -1015,7 +1022,7 @@ export async function runAgent(
 
       for (let round = 0; round < maxToolRounds; round++) {
         const thinkStepId = sid(`think-${attempt}-${round}`)
-        if (!compactTask) chatStore.addStep(assistantId, { id: thinkStepId, icon: 'think', label: '思考中' })
+        if (!compactTask) chatStore.addStep(assistantId, { id: thinkStepId, icon: 'think', label: t('THINKING') })
         let thinkFinished = false
         const finishThink = (): void => {
           if (thinkFinished) return
@@ -1023,7 +1030,7 @@ export async function runAgent(
           // 思考完成即清空思考预览，只保留「思考完成」状态条
           chatStore.updateStep(assistantId, thinkStepId, {
             status: 'done',
-            label: '思考完成',
+            label: t('THOUGHT_COMPLETE'),
             detail: undefined,
             raw: undefined,
           })
@@ -1058,7 +1065,7 @@ export async function runAgent(
         if (result.finishReason === 'length' && result.toolCalls.length > 0) {
           outcome = {
             kind: 'fatal',
-            error: `输出被 max_tokens（${resolveGeneration(config).maxTokens}）截断，tool_calls 不完整。请到「设置 → 模型参数」把最大输出 Token 调到 8192 以上（当前 ${resolveGeneration(config).maxTokens}），或把设计拆小后重试`,
+            error: t('TOOL_CALLS_TRUNCATED', { maxTokens: resolveGeneration(config).maxTokens }),
           }
           break
         }
@@ -1071,9 +1078,9 @@ export async function runAgent(
             chatStore.addStep(assistantId, {
               id: sid(`tasks-${attempt}-${round}`),
               icon: 'ops',
-              label: '更新任务列表',
+              label: t('UPDATE_TASK_LIST'),
               status: count > 0 ? 'done' : 'failed',
-              detail: count > 0 ? `${chatStore.tasks.length} 项` : '参数无效',
+              detail: count > 0 ? t('COUNT_ITEMS', { count: chatStore.tasks.length }) : t('INVALID_PARAMS'),
             })
           }
         }
@@ -1099,7 +1106,7 @@ export async function runAgent(
             chatStore.addStep(assistantId, {
               id: sid(`date-${attempt}-${round}-${i}`),
               icon: 'tool',
-              label: dateCalls[i].name === 'get_current_time' ? '读取当前时间' : '计算日期',
+              label: dateCalls[i].name === 'get_current_time' ? t('READ_CURRENT_TIME') : t('CALCULATE_DATE'),
               status: 'done',
               detail: callResult.detail,
             })
@@ -1113,7 +1120,7 @@ export async function runAgent(
         // 本轮只问了日期：让模型拿着结果继续，而不是按 ops 解析
         if (dateCalls.length > 0 && canvasCalls.length === 0 && taskToolCalls.length === 0) {
           if (round === maxToolRounds - 1) {
-            outcome = { kind: 'retry', error: '日期信息已取到，但未得到最终回复' }
+            outcome = { kind: 'retry', error: t('DATE_RESULT_NO_REPLY') }
             break
           }
           continue
@@ -1121,7 +1128,7 @@ export async function runAgent(
         // 本轮只更新了任务列表：继续下一轮，等待模型补上当前步的 ops
         if (taskMode && canvasCalls.length === 0 && taskToolCalls.length > 0) {
           if (round === maxToolRounds - 1) {
-            outcome = { kind: 'retry', error: '任务模式：只返回了任务列表，缺少本步 ops' }
+            outcome = { kind: 'retry', error: t('TASK_LIST_ONLY') }
             break
           }
           continue
@@ -1148,32 +1155,32 @@ export async function runAgent(
             chatStore.addStep(assistantId, {
               id: stepId,
               icon: 'tool',
-              label: `调用 ${callType}`,
+              label: t('CALL_CAPABILITY', { type: callType }),
             })
             // 破坏性能力（删除/分离实例等）执行前必须由用户确认，取消则立即结束本轮
             if (isDestructiveCapability(callType)) {
               const confirmStepId = `${stepId}-confirm`
-              chatStore.updateStep(assistantId, stepId, { detail: '等待确认' })
+              chatStore.updateStep(assistantId, stepId, { detail: t('WAITING_FOR_CONFIRMATION') })
               chatStore.addStep(assistantId, {
                 id: confirmStepId,
                 icon: 'tool',
-                label: `确认${DESTRUCTIVE_LABELS[callType] ?? callType}`,
+                label: t('CONFIRM_ACTION', { action: t(DESTRUCTIVE_LABELS[callType] ?? callType) }),
               })
               const confirmed = await confirmAction({
-                title: '确认破坏性操作？',
+                title: t('CONFIRM_DESTRUCTIVE_ACTION'),
                 message: describeDestructiveCall(callType, figmaCalls[i]),
-                confirmText: '执行',
+                confirmText: t('EXECUTE'),
                 danger: true,
               })
               chatStore.updateStep(assistantId, confirmStepId, {
                 status: confirmed ? 'done' : 'failed',
-                detail: confirmed ? '已确认' : '已取消',
+                detail: confirmed ? t('CONFIRMED') : t('CANCELED'),
               })
               if (!confirmed) {
                 declined = true
                 chatStore.updateStep(assistantId, stepId, {
                   status: 'failed',
-                  detail: '用户已取消',
+                  detail: t('CANCELED_BY_USER'),
                 })
                 break
               }
@@ -1217,9 +1224,12 @@ export async function runAgent(
                 ? { kind: 'direct', count: attemptWrites }
                 : {
                     kind: 'retry',
-                    error: `工具调用轮次已达上限（${maxToolRounds} 轮）${
-                      lastToolError ? `：${lastToolError.slice(0, 120)}` : '，仍未得到最终结果'
-                    }`,
+                    error: lastToolError
+                      ? t('TOOL_ROUNDS_LIMIT_WITH_ERROR', {
+                          count: maxToolRounds,
+                          error: lastToolError.slice(0, 120),
+                        })
+                      : t('TOOL_ROUNDS_LIMIT', { count: maxToolRounds }),
                   }
             break
           }
@@ -1260,9 +1270,9 @@ export async function runAgent(
             chatStore.addStep(assistantId, {
               id: sid(`lint-${attempt}-${round}`),
               icon: 'verify',
-              label: '按设计规范修正',
+              label: t('FIX_DESIGN_ISSUES'),
               status: 'done',
-              detail: `${issues.length} 项`,
+              detail: t('COUNT_ITEMS', { count: issues.length }),
             })
             continue
           }
@@ -1313,9 +1323,9 @@ export async function runAgent(
         chatStore.addStep(assistantId, {
           id: sid('lint-fallback'),
           icon: 'verify',
-          label: '使用修正前的可用方案',
+          label: t('USE_PREVIOUS_PLAN'),
           status: 'done',
-          detail: '规范修正未返回有效 ops',
+          detail: t('DESIGN_FIX_INVALID_OPS'),
         })
       }
     }
@@ -1332,25 +1342,27 @@ export async function runAgent(
           chatStore.addStep(assistantId, {
             id: sid('task-scope'),
             icon: 'verify',
-            label: '任务范围过滤',
+            label: t('FILTER_TASK_SCOPE'),
             status: 'done',
-            detail: `${scoped.dropped.length} 项已阻止`,
+            detail: t('BLOCKED_COUNT', { count: scoped.dropped.length }),
           })
         }
         if (!compactTask) {
           const current = chatStore.messages.find((m) => m.id === assistantId)?.content ?? ''
           chatStore.setContent(
             assistantId,
-            `${current}\n\n任务范围提示：${scoped.dropped.slice(0, 3).join('；')}`.trim(),
+            `${current}\n\n${t('TASK_SCOPE_PROMPT', {
+              notes: scoped.dropped.slice(0, 3).join(t('LIST_SEPARATOR')),
+            })}`.trim(),
           )
         }
       }
       if (opsToApply.length === 0) {
         chatStore.addMessage({
           role: 'error',
-          content: '任务模式：本步操作全部超出任务范围，已停止。',
+          content: t('TASK_ALL_OUT_OF_SCOPE'),
         })
-        finishTask(assistantId, '任务已停止')
+        finishTask(assistantId, t('TASK_STOPPED'))
         return
       }
     }
@@ -1362,7 +1374,7 @@ export async function runAgent(
     // 用户取消了破坏性操作且本次没有其它写操作：保留可见反馈后结束
     if (declined && directWrites === 0) {
       const message = chatStore.messages.find((m) => m.id === assistantId)
-      if (!message?.content.trim()) chatStore.setContent(assistantId, '已取消该破坏性操作。')
+      if (!message?.content.trim()) chatStore.setContent(assistantId, t('DESTRUCTIVE_CANCELED'))
       return
     }
 
@@ -1373,20 +1385,20 @@ export async function runAgent(
       if (compactTask) {
         chatStore.updateStep(assistantId, sid('step'), {
           status: 'done',
-          detail: `${directWrites} 次写操作`,
+          detail: t('WRITE_CALLS', { count: directWrites }),
         })
         return
       }
       chatStore.addStep(assistantId, {
         id: sid('direct-write'),
         icon: 'apply',
-        label: '通过能力调用完成画布修改',
+        label: t('COMPLETED_VIA_CAPABILITIES'),
         status: 'done',
-        detail: `${directWrites} 次写操作`,
+        detail: t('WRITE_CALLS', { count: directWrites }),
       })
       const message = chatStore.messages.find((m) => m.id === assistantId)
       if (!message?.content.trim()) {
-        chatStore.setContent(assistantId, '已通过能力调用直接完成画布修改。')
+        chatStore.setContent(assistantId, t('CANVAS_DONE_VIA_CAPABILITIES'))
       }
       return
     }
@@ -1398,9 +1410,9 @@ export async function runAgent(
         chatStore.addStep(assistantId, {
           id: sid('ops'),
           icon: 'ops',
-          label: '生成画布操作',
+          label: t('GENERATE_CANVAS_OPS'),
           status: 'done',
-          detail: `${opsToApply.length} 个顶层操作`,
+          detail: t('TOP_LEVEL_OPS', { count: opsToApply.length }),
         })
       }
       if (showOpsCard) chatStore.setOps(assistantId, opsToApply, 'pending')
@@ -1411,23 +1423,23 @@ export async function runAgent(
         chatStore.addStep(assistantId, {
           id: sid('lint'),
           icon: 'verify',
-          label: '设计规范校验',
+          label: t('DESIGN_LINT'),
           status: 'done',
-          detail: lintIssues.length > 0 ? `${lintIssues.length} 项待优化` : '通过',
+          detail: lintIssues.length > 0 ? t('LINT_ISSUES_PENDING', { count: lintIssues.length }) : t('LINT_PASSED'),
         })
       }
       if (lintIssues.length > 0 && !compactTask) {
         const current = chatStore.messages.find((m) => m.id === assistantId)?.content ?? ''
         chatStore.setContent(
           assistantId,
-          `${current}\n\n规范提示：${lintIssues.map((item) => item.message).join('；')}`.trim(),
+          `${current}\n\n${t('LINT_HINT_PREFIX')}${lintIssues.map((item) => item.message).join('；')}`.trim(),
         )
       }
 
       if (autoApplyOps) {
         // 自动应用：任务模式授权后 / 普通模式开启 autoApply；卡片仍显示，但状态直接置为 applied
         if (!compactTask) {
-          chatStore.addStep(assistantId, { id: sid('apply'), icon: 'apply', label: '应用到画布' })
+          chatStore.addStep(assistantId, { id: sid('apply'), icon: 'apply', label: t('APPLY_TO_CANVAS') })
         }
         if (showOpsCard) chatStore.setOpsStatus(assistantId, 'applying')
         try {
@@ -1439,17 +1451,17 @@ export async function runAgent(
               : assistantId
           const applied = await sendOpsByAction(opsToApply, { batchId })
           const parentIds = new Set((applied.placements ?? []).map((item) => item.parentId))
-          let applyDetail = `已生成 ${applied.created} 个节点`
+          let applyDetail = t('CREATED_NODES_COUNT', { count: applied.created })
           if (applied.containerName) {
-            applyDetail = `已放入 ${applied.containerName}`
+            applyDetail = t('PLACED_IN', { name: applied.containerName })
           } else if (parentIds.size > 1) {
-            applyDetail += '（多个容器）'
+            applyDetail = t('APPLY_MULTIPLE_CONTAINERS', { detail: applyDetail })
           } else if (parentIds.size === 1 && parentIds.has('page')) {
-            applyDetail += '（页面）'
+            applyDetail = t('APPLY_PAGE', { detail: applyDetail })
           }
           const partialErrors = applied.errors ?? []
           if (partialErrors.length > 0) {
-            applyDetail += ` · ${partialErrors.length} 个失败`
+            applyDetail += ` · ${t('FAILED_COUNT', { count: partialErrors.length })}`
           }
           if (compactTask) {
             chatStore.updateStep(assistantId, sid('step'), {
@@ -1472,7 +1484,7 @@ export async function runAgent(
           if (!compactTask && !appliedMessage?.content.trim()) {
             chatStore.setContent(
               assistantId,
-              nothingApplied ? '应用失败。' : `已生成 ${applied.created} 个节点并应用到画布。`,
+              nothingApplied ? t('APPLY_FAILED_PLAIN') : t('APPLY_SUCCESS_SUMMARY', { count: applied.created }),
             )
           }
           // 记忆：本轮直接写能力 + 批量 ops 的写入摘要（含原生 id），供后续轮次引用
@@ -1489,7 +1501,7 @@ export async function runAgent(
           }
           // 借鉴官方 Agent 的读写闭环：应用后读回画布校验生成结果（任务续跑省略每步校验）
           if (!compactTask) {
-            chatStore.addStep(assistantId, { id: sid('verify'), icon: 'verify', label: '校验生成结果' })
+            chatStore.addStep(assistantId, { id: sid('verify'), icon: 'verify', label: t('VERIFY_RESULT') })
             try {
               const selection = await invokeCapability<{
                 count?: number
@@ -1503,20 +1515,22 @@ export async function runAgent(
               if (selection?.truncated || expected.length === 0) {
                 chatStore.updateStep(assistantId, sid('verify'), {
                   status: count > 0 ? 'done' : 'failed',
-                  detail: count > 0 ? `已选中 ${count} 个新节点` : '未检测到新节点',
+                  detail: count > 0 ? t('SELECTED_NEW_NODES', { count }) : t('NO_NEW_NODES'),
                 })
               } else {
                 const selected = new Set((selection?.nodes ?? []).map((node) => node.id))
                 const matched = expected.filter((id) => selected.has(id)).length
                 chatStore.updateStep(assistantId, sid('verify'), {
                   status: matched === expected.length ? 'done' : 'failed',
-                  detail: `顶层节点 ${matched}/${expected.length} 已落位${
-                    applied.containerName ? ` · ${applied.containerName}` : ''
-                  }`,
+                  detail: t('TOP_LEVEL_PLACED', {
+                    matched,
+                    total: expected.length,
+                    extra: applied.containerName ? ` · ${applied.containerName}` : '',
+                  }),
                 })
               }
             } catch {
-              chatStore.updateStep(assistantId, sid('verify'), { status: 'failed', detail: '校验失败' })
+              chatStore.updateStep(assistantId, sid('verify'), { status: 'failed', detail: t('VERIFY_FAILED') })
             }
           }
         } catch (error) {
@@ -1524,17 +1538,19 @@ export async function runAgent(
           if (compactTask) {
             chatStore.updateStep(assistantId, sid('step'), {
               status: 'failed',
-              detail: error instanceof Error ? error.message.slice(0, 40) : '应用失败',
+              detail: error instanceof Error ? error.message.slice(0, 40) : t('APPLY_FAILED_PLAIN'),
             })
           } else {
             chatStore.updateStep(assistantId, sid('apply'), {
               status: 'failed',
-              detail: error instanceof Error ? error.message.slice(0, 60) : '应用失败',
+              detail: error instanceof Error ? error.message.slice(0, 60) : t('APPLY_FAILED_PLAIN'),
             })
           }
           chatStore.addMessage({
             role: 'error',
-            content: `自动应用到画布失败：${error instanceof Error ? error.message : String(error)}`,
+            content: t('AUTO_APPLY_FAILED', {
+              error: error instanceof Error ? error.message : String(error),
+            }),
           })
         }
       } else if (taskMode) {
@@ -1559,7 +1575,7 @@ export async function runAgent(
         chatStore.addStep(assistantId, {
           id: sid('error'),
           icon: 'error',
-          label: '生成失败',
+          label: t('GENERATION_FAILED'),
           status: 'failed',
           detail: lastError.slice(0, 60),
         })
@@ -1567,7 +1583,7 @@ export async function runAgent(
       // 重试全部失败（或首轮即失败且无可用内容）：展示错误与「重新生成」语义
       chatStore.addMessage({
         role: 'error',
-        content: `生成失败：${lastError}\n可点击操作卡片或重新发送以「重新生成」。`,
+        content: t('GENERATION_FAILED_CONTENT', { error: lastError }),
       })
     }
     // 其余情况（纯文本回复 / 用户停止）：保留 assistant 文本即可
@@ -1575,7 +1591,7 @@ export async function runAgent(
     chatStore.setStreaming(assistantId, false)
     chatStore.addMessage({
       role: 'error',
-      content: `请求异常：${error instanceof Error ? error.message : String(error)}`,
+      content: t('REQUEST_EXCEPTION', { error: error instanceof Error ? error.message : String(error) }),
     })
   } finally {
     // 任务模式收尾：授权后自动续跑下一步；计划全部完成 / 模型回复 DONE / 手动停止时结束任务
@@ -1583,14 +1599,14 @@ export async function runAgent(
     let scheduleNext = false
     if (taskMode && taskRun) {
       if (taskAborted) {
-        finishTask(assistantId, '任务已停止')
+        finishTask(assistantId, t('TASK_STOPPED'))
       } else if (taskRun.approved && taskStepApplied) {
         if (isTaskPlanComplete()) await verifyTaskAndFinish(assistantId, taskRun)
         else scheduleNext = true
       } else if (isTaskStep && !taskStepApplied) {
         await verifyTaskAndFinish(assistantId, taskRun)
       } else if (!taskRun.approved && !taskOpsPending && !taskStepApplied) {
-        finishTask(assistantId, '任务未产生画布操作')
+        finishTask(assistantId, t('TASK_NO_CANVAS_OPS'))
       }
     }
     chatStore.generating = false

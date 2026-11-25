@@ -7,6 +7,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { normalizeBaseUrl, normalizeConfig, parseExtraBody } from '../../../types/config.types'
 import { useConfigStore } from '../store/config'
+import { useT } from '../i18n'
+import { confirmChoice } from '../composables/useConfirm'
 import CommandsTab from './settings/CommandsTab.vue'
 import GeneralTab from './settings/GeneralTab.vue'
 import ModelsTab from './settings/ModelsTab.vue'
@@ -19,13 +21,14 @@ type TabKey = 'models' | 'commands' | 'prompt' | 'general'
 const emit = defineEmits<{ (e: 'back'): void }>()
 
 const store = useConfigStore()
+const t = useT()
 
 /* ---------- Tab 分段控件 ---------- */
 const tabs: { key: TabKey; label: string }[] = [
-  { key: 'models', label: '模型' },
-  { key: 'commands', label: '指令' },
-  { key: 'prompt', label: '提示词' },
-  { key: 'general', label: '通用设置' }
+  { key: 'models', label: 'MODELS' },
+  { key: 'commands', label: 'COMMANDS' },
+  { key: 'prompt', label: 'PROMPT' },
+  { key: 'general', label: 'GENERAL_SETTINGS' }
 ]
 const activeTab = ref<TabKey>('models')
 
@@ -62,12 +65,32 @@ function syncSavedSnapshot(): void {
 }
 
 /* ---------- 返回 ---------- */
-function onBack(): void {
-  if (isDirty.value) {
-    showToast('更改尚未保存')
-    setTimeout(() => emit('back'), 500)
-  } else {
+const leaving = ref(false)
+async function onBack(): Promise<void> {
+  if (!isDirty.value) {
     emit('back')
+    return
+  }
+  if (leaving.value || saving.value) return
+  leaving.value = true
+  try {
+    const choice = await confirmChoice({
+      title: t('UNSAVED_CHANGES'),
+      message: t('UNSAVED_CHANGES_DESC'),
+      confirmText: t('SAVE_AND_BACK'),
+      discardText: t('LEAVE_WITHOUT_SAVING'),
+      cancelText: t('CANCEL')
+    })
+    if (choice === 'discard') {
+      // 放弃修改：重新加载已保存配置，避免未保存改动继续影响本次会话
+      await store.load()
+      emit('back')
+      return
+    }
+    // 保存成功（含校验通过）才返回；校验失败时停留在设置页便于修正
+    if (choice === 'confirm' && (await saveSettings())) emit('back')
+  } finally {
+    leaving.value = false
   }
 }
 
@@ -76,35 +99,36 @@ function resetForm(): void {
   modelsTabRef.value?.closeModals()
   commandsTabRef.value?.closeModal()
   store.update(normalizeConfig())
-  showToast('已恢复默认配置（尚未保存）')
+  showToast(t('DEFAULTS_RESTORED'))
 }
 
 const saving = ref(false)
-async function saveSettings(): Promise<void> {
+/** 保存设置；返回是否成功（供「保存并返回」判断） */
+async function saveSettings(): Promise<boolean> {
   const invalid = store.config.models.find((entry) => modelError(entry))
   if (invalid) {
     activeTab.value = 'models'
     modelsTabRef.value?.openEditor(invalid.id)
     showToast(modelError(invalid), 'error')
-    return
+    return false
   }
   // 同一 Base URL 下不允许重复模型 ID（兜底校验，防止旧配置绕过弹窗）
   const duplicate = findDuplicateModel(store.config.models)
   if (duplicate) {
     activeTab.value = 'models'
     modelsTabRef.value?.openEditor(duplicate.id)
-    showToast('当前 Base URL 下已存在相同模型 ID', 'error')
-    return
+    showToast(t('DUPLICATE_MODEL_ID'), 'error')
+    return false
   }
   // 额外请求体按模型逐个校验，出错时打开对应模型弹窗
   for (const entry of store.config.models) {
-    const name = entry.name || entry.model || '未命名模型'
+    const name = entry.name || entry.model || t('UNTITLED_MODEL')
     const extraBody = parseExtraBody(entry.generation.extraBody)
     if (!extraBody.ok) {
       activeTab.value = 'models'
       modelsTabRef.value?.openEditor(entry.id)
-      showToast(`模型「${name}」的额外请求体 JSON 无效：${extraBody.error}`, 'error')
-      return
+      showToast(t('INVALID_EXTRA_BODY', { name, error: extraBody.error }), 'error')
+      return false
     }
   }
   saving.value = true
@@ -121,9 +145,11 @@ async function saveSettings(): Promise<void> {
     })
     await store.save()
     savedSnapshot.value = JSON.stringify(store.config)
-    showToast('设置已保存')
+    showToast(t('SETTINGS_SAVED'))
+    return true
   } catch (err) {
-    showToast(err instanceof Error ? `保存失败：${err.message}` : '保存失败', 'error')
+    showToast(err instanceof Error ? t('SAVE_FAILED', { message: err.message }) : t('SAVE_FAILED_PLAIN'), 'error')
+    return false
   } finally {
     saving.value = false
   }
@@ -155,7 +181,7 @@ async function saveSettings(): Promise<void> {
     >
       <button
         type="button"
-        aria-label="返回对话"
+        :aria-label="t('BACK_TO_CHAT')"
         class="flex h-8 w-8 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
         @click="onBack"
       >
@@ -169,7 +195,7 @@ async function saveSettings(): Promise<void> {
           />
         </svg>
       </button>
-      <h1 class="text-base font-semibold tracking-[-0.01em]">设置</h1>
+      <h1 class="text-base font-semibold tracking-[-0.01em]">{{ t('SETTINGS') }}</h1>
     </header>
 
     <!-- Tab 分段控件（iOS Segmented Control） -->
@@ -187,7 +213,7 @@ async function saveSettings(): Promise<void> {
           "
           @click="activeTab = tab.key"
         >
-          {{ tab.label }}
+          {{ t(tab.label) }}
         </button>
       </div>
     </nav>
@@ -220,7 +246,7 @@ async function saveSettings(): Promise<void> {
       class="flex shrink-0 items-center gap-3 border-t border-figma-border bg-figma-surface px-4 py-3 dark:border-figma-border-dark dark:bg-figma-surface-dark"
     >
       <button type="button" :disabled="saving" :class="[secondaryBtnClass, 'flex-1']" @click="resetForm">
-        重置
+        {{ t('RESET') }}
       </button>
       <button
         type="button"
@@ -228,7 +254,7 @@ async function saveSettings(): Promise<void> {
         class="flex-1 rounded-lg bg-ios-blue px-3.5 py-2.5 text-[14px] font-semibold text-white transition-colors hover:bg-ios-blue/90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-ios-blue-dark dark:hover:bg-ios-blue-dark/90"
         @click="saveSettings"
       >
-        {{ saving ? '保存中…' : '保存' }}
+        {{ saving ? t('SAVING') : t('SAVE') }}
       </button>
     </footer>
   </div>

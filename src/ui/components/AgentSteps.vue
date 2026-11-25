@@ -16,9 +16,11 @@ import {
   mdiWrench,
 } from '@mdi/js'
 import { nextTick, ref, watch } from 'vue'
+import { useT } from '../i18n'
 import type { AgentStep, StepIcon } from '../store/chat'
 
 const props = defineProps<{ steps: AgentStep[] }>()
+const t = useT()
 
 /** 步骤列表容器：新步骤 / 状态变化时自动滚到底部 */
 const listRef = ref<HTMLElement | null>(null)
@@ -71,8 +73,8 @@ function labelClass(step: AgentStep): string {
 }
 
 function statusText(step: AgentStep): string {
-  if (step.status === 'running') return '进行中'
-  if (step.status === 'failed') return '失败'
+  if (step.status === 'running') return t('RUNNING')
+  if (step.status === 'failed') return t('FAILED')
   return ''
 }
 </script>
@@ -91,7 +93,7 @@ function statusText(step: AgentStep): string {
         <svg class="h-3 w-3" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="mdiCheckCircle" fill="currentColor" />
         </svg>
-        思考完成
+        {{ t('THOUGHT_COMPLETE') }}
       </div>
       <template v-else>
         <svg

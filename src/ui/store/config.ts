@@ -5,6 +5,7 @@
  */
 import { defineStore } from 'pinia'
 import { normalizeConfig, type PluginConfig } from '../../../types/config.types'
+import { applyLanguage } from '../i18n'
 import { bridge } from '../services/bridge.service'
 
 interface ConfigState {
@@ -29,18 +30,24 @@ export const useConfigStore = defineStore('config', {
         this.config = normalizeConfig()
       } finally {
         this.loaded = true
+        applyLanguage(this.config.language)
       }
       return this.config
     },
     /** 保存配置到沙箱（config:save，payload 即配置对象） */
     async save(): Promise<void> {
       this.config = normalizeConfig(this.config)
+      applyLanguage(this.config.language)
       await bridge.request('config:save', this.config)
       this.loaded = true
     },
-    /** 局部更新配置（仅内存，不写盘） */
+    /** 局部更新配置（仅内存，不写盘；语言在保存时统一生效） */
     update(partial: Partial<PluginConfig>): void {
       this.config = normalizeConfig({ ...this.config, ...partial })
+    },
+    /** 立即按当前配置应用语言（清空数据等绕过保存流程时使用） */
+    applyCurrentLanguage(): void {
+      applyLanguage(this.config.language)
     }
   }
 })

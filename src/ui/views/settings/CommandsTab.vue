@@ -7,6 +7,7 @@ import { computed, ref } from 'vue'
 import { type QuickCommandConfig } from '../../../../types/config.types'
 import { confirmAction } from '../../composables/useConfirm'
 import { useConfigStore } from '../../store/config'
+import { useT } from '../../i18n'
 import SettingGroup from '../../components/SettingGroup.vue'
 import { inputClass, invalidInputClass, secondaryBtnClass } from './formStyles'
 
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useConfigStore()
+const t = useT()
 
 const commandDraft = ref<QuickCommandConfig | null>(null)
 const editingCommandLabel = ref<string | null>(null)
@@ -29,23 +31,23 @@ const commandLabelError = computed(() => {
   const draft = commandDraft.value
   if (!draft) return ''
   const label = normalizedCommandLabel.value
-  if (!label || label === '/') return '请填写指令名（如 /骨架）'
-  if (/\s/.test(label)) return '指令名不能包含空格'
-  if (label.length > 20) return '指令名最多 20 个字符'
+  if (!label || label === '/') return t('ENTER_A_COMMAND_NAME_E_G')
+  if (/\s/.test(label)) return t('COMMAND_NAME_CANNOT_CONTAIN_SPACES')
+  if (label.length > 20) return t('COMMAND_NAME_MUST_BE_20_CHARACTERS')
   const duplicate = store.config.customCommands.some(
     (item) => item.label === label && item.label !== editingCommandLabel.value
   )
-  return duplicate ? '已存在同名自定义指令' : ''
+  return duplicate ? t('A_CUSTOM_COMMAND_WITH_THIS_NAME') : ''
 })
 
 const commandDescriptionError = computed(() =>
   commandDraft.value && commandDraft.value.description.trim().length > 40
-    ? '说明最多 40 个字符'
+    ? t('DESCRIPTION_MUST_BE_40_CHARACTERS_OR')
     : ''
 )
 
 const commandPromptError = computed(() =>
-  commandDraft.value && !commandDraft.value.prompt.trim() ? '请填写提示词模板' : ''
+  commandDraft.value && !commandDraft.value.prompt.trim() ? t('ENTER_A_PROMPT_TEMPLATE') : ''
 )
 
 function openAddCommand(): void {
@@ -83,14 +85,14 @@ function saveCommandDraft(): void {
   if (index >= 0) list.splice(index, 1, entry)
   else list.push(entry)
   closeCommandModal()
-  emit('notify', '指令已保存，记得保存设置')
+  emit('notify', t('COMMAND_SAVED_REMEMBER_TO_SAVE_SETTINGS'))
 }
 
 async function removeCommand(label: string): Promise<void> {
   const confirmed = await confirmAction({
-    title: '删除指令？',
-    message: `将删除自定义指令「${label}」，此操作不可撤销。`,
-    confirmText: '删除',
+    title: t('DELETE_COMMAND_CONFIRM'),
+    message: t('THIS_DELETES_THE_CUSTOM_COMMAND_THIS', { label }),
+    confirmText: t('DELETE'),
     danger: true
   })
   if (!confirmed) return
@@ -108,13 +110,13 @@ defineExpose({ closeModal })
 
 <template>
   <div class="flex flex-col gap-5">
-    <SettingGroup title="自定义指令">
+    <SettingGroup :title="t('CUSTOM_COMMANDS')">
       <p class="px-4 pb-2 pt-3 text-[12px] leading-[18px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-        与内置指令一起出现在输入框的 / 菜单中；同名指令会覆盖内置模板。修改后记得保存设置。
+        {{ t('SHOWN_IN_THE_MENU_ALONGSIDE_BUILT') }}
       </p>
       <div class="px-4 pb-3">
         <button type="button" :class="[secondaryBtnClass, 'w-full']" @click="openAddCommand">
-          添加指令
+          {{ t('ADD_COMMAND') }}
         </button>
       </div>
       <div
@@ -127,7 +129,7 @@ defineExpose({ closeModal })
             {{ command.label }}
           </p>
           <p class="mt-0.5 truncate text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-            {{ command.description || '未填写说明' }}
+            {{ command.description || t('NO_DESCRIPTION') }}
           </p>
           <p class="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[11px] leading-4 text-ios-label-tertiary dark:text-ios-label-tertiary-dark">
             {{ command.prompt }}
@@ -139,14 +141,14 @@ defineExpose({ closeModal })
             class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/10 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/15"
             @click="openEditCommand(command)"
           >
-            编辑
+            {{ t('EDIT') }}
           </button>
           <button
             type="button"
             class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-red transition-colors hover:bg-ios-red/10 dark:text-ios-red-dark dark:hover:bg-ios-red-dark/10"
             @click="removeCommand(command.label)"
           >
-            删除
+            {{ t('DELETE') }}
           </button>
         </div>
       </div>
@@ -154,7 +156,7 @@ defineExpose({ closeModal })
         v-if="store.config.customCommands.length === 0"
         class="border-t border-figma-border px-4 py-6 text-center text-[12px] text-ios-label-secondary dark:border-figma-border-dark dark:text-ios-label-secondary-dark"
       >
-        暂无自定义指令
+        {{ t('NO_CUSTOM_COMMANDS_YET') }}
       </p>
     </SettingGroup>
 
@@ -166,11 +168,11 @@ defineExpose({ closeModal })
       >
         <div class="flex shrink-0 items-center justify-between border-b border-figma-border px-4 py-3 dark:border-figma-border-dark">
           <h2 class="text-[15px] font-semibold text-figma-text dark:text-figma-text-dark">
-            {{ editingCommandLabel ? '编辑指令' : '添加指令' }}
+            {{ editingCommandLabel ? t('EDIT_COMMAND') : t('ADD_COMMAND') }}
           </h2>
           <button
             type="button"
-            aria-label="关闭"
+            :aria-label="t('CLOSE')"
             class="flex h-7 w-7 items-center justify-center rounded-full text-ios-label-secondary transition-colors hover:bg-ios-fill dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark"
             @click="closeCommandModal"
           >
@@ -183,12 +185,12 @@ defineExpose({ closeModal })
         <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <label class="block">
             <span class="mb-1.5 block text-[12px] font-medium text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              指令名
+              {{ t('COMMAND_NAME') }}
             </span>
             <input
               v-model="commandDraft.label"
               type="text"
-              placeholder="/骨架"
+              :placeholder="t('SKELETON')"
               :class="[inputClass, commandLabelError ? invalidInputClass : '']"
             />
             <span v-if="commandLabelError" class="mt-1 block text-[11px] text-ios-red dark:text-ios-red-dark">
@@ -198,12 +200,12 @@ defineExpose({ closeModal })
 
           <label class="block">
             <span class="mb-1.5 block text-[12px] font-medium text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              说明
+              {{ t('DESCRIPTION') }}
             </span>
             <input
               v-model="commandDraft.description"
               type="text"
-              placeholder="候选列表中的简短说明"
+              :placeholder="t('SHORT_DESCRIPTION_IN_THE_SUGGESTION_LIST')"
               :class="[inputClass, commandDescriptionError ? invalidInputClass : '']"
             />
             <span v-if="commandDescriptionError" class="mt-1 block text-[11px] text-ios-red dark:text-ios-red-dark">
@@ -213,12 +215,12 @@ defineExpose({ closeModal })
 
           <label class="block">
             <span class="mb-1.5 block text-[12px] font-medium text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              提示词模板
+              {{ t('PROMPT_TEMPLATE') }}
             </span>
             <textarea
               v-model="commandDraft.prompt"
               rows="6"
-              placeholder="选中指令后填入输入框的完整提示词…"
+              :placeholder="t('FULL_PROMPT_INSERTED_INTO_THE_INPUT')"
               :class="[inputClass, 'resize-none leading-5', commandPromptError ? invalidInputClass : '']"
             ></textarea>
             <span v-if="commandPromptError" class="mt-1 block text-[11px] text-ios-red dark:text-ios-red-dark">
@@ -229,14 +231,14 @@ defineExpose({ closeModal })
 
         <div class="flex shrink-0 gap-2 border-t border-figma-border px-4 py-3 dark:border-figma-border-dark">
           <button type="button" :class="[secondaryBtnClass, 'flex-1']" @click="closeCommandModal">
-            取消
+            {{ t('CANCEL') }}
           </button>
           <button
             type="button"
             class="flex-1 rounded-lg bg-ios-blue px-3.5 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-ios-blue/90 dark:bg-ios-blue-dark dark:hover:bg-ios-blue-dark/90"
             @click="saveCommandDraft"
           >
-            保存
+            {{ t('SAVE') }}
           </button>
         </div>
       </div>

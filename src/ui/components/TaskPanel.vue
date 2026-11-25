@@ -5,10 +5,12 @@
  */
 import { computed, ref } from 'vue'
 import { clearTaskList, completeTaskManually } from '../services/agent.service'
+import { useT } from '../i18n'
 import { useChatStore } from '../store/chat'
 
 const chatStore = useChatStore()
 const expanded = ref(false)
+const t = useT()
 
 /** 手动完成：把剩余任务全部标记完成并停止续跑 */
 function onComplete(): void {
@@ -61,16 +63,16 @@ const allDone = computed(() => total.value > 0 && completed.value === total.valu
         </span>
         <span class="min-w-0 flex-1">
           <span class="flex items-center gap-1.5">
-            <span class="text-[13px] font-semibold text-figma-text dark:text-figma-text-dark">任务进度</span>
+            <span class="text-[13px] font-semibold text-figma-text dark:text-figma-text-dark">{{ t('TASK_PROGRESS') }}</span>
             <span class="rounded-full bg-ios-fill px-1.5 py-px text-[10px] font-medium text-ios-label-secondary dark:bg-ios-fill-dark dark:text-ios-label-secondary-dark">
               {{ completed }}/{{ total }}
             </span>
             <span v-if="!allDone" class="text-[10px] font-medium text-ios-blue dark:text-ios-blue-dark">
-              第 {{ currentStep }} 步
+              {{ t('STEP', { step: currentStep }) }}
             </span>
           </span>
           <span class="mt-0.5 block truncate text-[11px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-            {{ allDone ? '全部任务已完成' : current?.title ?? '等待下一步' }}
+            {{ allDone ? t('ALL_TASKS_COMPLETED') : current?.title ?? t('WAITING_FOR_THE_NEXT_STEP') }}
           </span>
         </span>
         <svg
@@ -92,8 +94,8 @@ const allDone = computed(() => total.value > 0 && completed.value === total.valu
       <button
         v-if="!allDone"
         type="button"
-        title="标记全部完成"
-        aria-label="标记全部完成"
+        :title="t('MARK_ALL_COMPLETE')"
+        :aria-label="t('MARK_ALL_COMPLETE')"
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ios-label-secondary transition-colors hover:bg-ios-fill hover:text-ios-green dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-ios-green-dark"
         @click="onComplete"
       >
@@ -105,8 +107,8 @@ const allDone = computed(() => total.value > 0 && completed.value === total.valu
       <!-- 清空任务列表 -->
       <button
         type="button"
-        title="清空任务列表"
-        aria-label="清空任务列表"
+        :title="t('CLEAR_TASK_LIST')"
+        :aria-label="t('CLEAR_TASK_LIST')"
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ios-label-secondary transition-colors hover:bg-ios-fill hover:text-ios-red dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-ios-red-dark"
         @click="onClear"
       >

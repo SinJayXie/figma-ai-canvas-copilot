@@ -1,6 +1,6 @@
 {
   "name": "ai-canvas-copilot",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "license": "MIT",
   "description": "AI Canvas Copilot Figma 插件：通过自然语言对话在画布上生成与修改原生可编辑图层",
@@ -21,6 +21,7 @@
     "pinia": "^2.3.1",
     "tokenx": "^2.2.1",
     "vue": "^3.4.0",
+    "vue-i18n": "^11.4.23",
     "zod": "^3.23.8"
   },
   "devDependencies": {

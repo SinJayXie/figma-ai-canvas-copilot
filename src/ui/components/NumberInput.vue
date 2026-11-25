@@ -5,6 +5,7 @@
  * - min / max 在失焦与步进时限幅；step 支持小数（0.1 / 0.05 等）
  */
 import { ref, watch } from 'vue'
+import { useT } from '../i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -17,6 +18,7 @@ const props = withDefaults(
   }>(),
   { min: 0, max: 1000000, step: 1, placeholder: '', ariaLabel: '' }
 )
+const t = useT()
 
 const emit = defineEmits<{ (e: 'update:modelValue', value: number | null): void }>()
 
@@ -73,7 +75,7 @@ function stepBy(direction: -1 | 1): void {
   >
     <button
       type="button"
-      aria-label="减少"
+      :aria-label="t('DECREASE')"
       class="w-9 shrink-0 text-[15px] leading-none text-figma-text transition-colors hover:bg-ios-fill-secondary active:bg-ios-fill-secondary dark:text-figma-text-dark dark:hover:bg-ios-fill-secondary-dark"
       @click="stepBy(-1)"
     >
@@ -91,7 +93,7 @@ function stepBy(direction: -1 | 1): void {
     />
     <button
       type="button"
-      aria-label="增加"
+      :aria-label="t('INCREASE')"
       class="w-9 shrink-0 text-[15px] leading-none text-figma-text transition-colors hover:bg-ios-fill-secondary active:bg-ios-fill-secondary dark:text-figma-text-dark dark:hover:bg-ios-fill-secondary-dark"
       @click="stepBy(1)"
     >

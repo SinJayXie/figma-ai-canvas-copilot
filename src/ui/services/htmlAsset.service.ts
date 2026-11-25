@@ -5,6 +5,7 @@
  * - 导出：连同 index.html 打成 ZIP，素材统一放在 assets/ 目录
  */
 import { invokeCapability } from './capabilities.service'
+import { t } from '../i18n'
 import { createZip } from '../utils/zip'
 import {
   exportFormatOf,
@@ -77,7 +78,7 @@ async function resolveNodeId(raw: string): Promise<string> {
       return hit.id
     }
   }
-  throw new Error(`未找到素材图层：${raw}`)
+  throw new Error(t('MATERIAL_NOT_FOUND', { value: raw }))
 }
 
 /** 调用沙箱 export_node 导出单个素材（图标优先 SVG，失败回退 PNG） */
@@ -98,7 +99,7 @@ function exportAsset(ref: AssetRef, scale: number): Promise<ExportedAsset> {
       if (format === 'SVG' && typeof data?.svg === 'string') {
         return { bytes: new TextEncoder().encode(data.svg), mime: 'image/svg+xml', path: ref.filePath }
       }
-      if (!data?.base64) throw new Error('导出结果为空')
+      if (!data?.base64) throw new Error(t('EXPORT_RESULT_EMPTY'))
       return {
         bytes: base64ToBytes(data.base64),
         mime: MIME_BY_EXT[ref.ext] ?? 'application/octet-stream',

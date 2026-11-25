@@ -17,6 +17,8 @@ import {
   type ReasoningEffort
 } from '../../../../types/config.types'
 import { confirmAction } from '../../composables/useConfirm'
+import { useT } from '../../i18n'
+import { localizedProviderName } from '../../i18n/providerNames'
 import { useConfigStore } from '../../store/config'
 import { generateId } from '../../utils/uuid'
 import SettingGroup from '../../components/SettingGroup.vue'
@@ -37,6 +39,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useConfigStore()
+const t = useT()
 
 const visibleApiKeys = ref<Record<string, boolean>>({})
 const testingModelId = ref('')
@@ -123,6 +126,23 @@ function onDraftProviderChange(): void {
   if (modelDraft.value) onProviderChange(modelDraft.value)
 }
 
+/** 服务商描述文案 key（与 locale 中的大写下划线 key 一一对应） */
+const PROVIDER_DESCRIPTION_KEYS: Record<string, string> = {
+  deepseek: 'OFFICIAL_API_WITH_REASONING_MODELS',
+  openai: 'OFFICIAL_GPT_O_SERIES_ENDPOINT',
+  moonshot: 'MOONSHOT_KIMI',
+  zhipu: 'GLM_4_SERIES',
+  qwen: 'ALIBABA_CLOUD_BAILIAN_COMPATIBLE_MODE',
+  siliconflow: 'MULTI_MODEL_AGGREGATION_PLATFORM',
+  openrouter: 'AGGREGATES_MULTIPLE_OVERSEAS_MODELS',
+  groq: 'LOW_LATENCY_INFERENCE',
+  mistral: 'OFFICIAL_MISTRAL_API',
+  xai: 'GROK_SERIES',
+  gemini: 'GEMINI_OPENAI_COMPATIBLE_ENDPOINT',
+  ollama: 'LOCAL_MODELS_USUALLY_NO_KEY_NEEDED',
+  custom: 'ANY_OPENAI_COMPATIBLE_ENDPOINT',
+}
+
 const activeEntry = computed(
   () => store.config.models.find((entry) => entry.id === store.config.activeModelId) ?? null
 )
@@ -132,7 +152,7 @@ function isActiveModel(id: string): boolean {
 }
 
 function providerName(entry: ModelEntry): string {
-  return getProviderPreset(entry.provider).name
+  return localizedProviderName(entry.provider)
 }
 
 function modelSuggestions(entry: ModelEntry): string[] {
@@ -236,12 +256,12 @@ function saveModelDraft(): void {
   }
   const extraBody = parseExtraBody(draft.generation.extraBody)
   if (!extraBody.ok) {
-    emit('notify', `额外请求体 JSON 无效：${extraBody.error}`, 'error')
+    emit('notify', t('INVALID_EXTRA_REQUEST_BODY_JSON', { error: extraBody.error }), 'error')
     return
   }
   const next: ModelEntry = {
     ...draft,
-    name: draft.name.trim() || draft.model.trim() || getProviderPreset(draft.provider).name,
+    name: draft.name.trim() || draft.model.trim() || localizedProviderName(draft.provider),
     model: draft.model.trim(),
     baseUrl: normalizeBaseUrl(draft.baseUrl),
     apiKey: draft.apiKey.trim(),
@@ -255,7 +275,7 @@ function saveModelDraft(): void {
   const added = modelModalMode.value === 'add'
   modelDraft.value = null
   resetModelTouched()
-  emit('notify', added ? '模型已添加，记得保存设置' : '模型已更新，记得保存设置', 'success')
+  emit('notify', added ? t('MODEL_ADDED_REMEMBER_TO_SAVE_SETTINGS') : t('MODEL_UPDATED_REMEMBER_TO_SAVE_SETTINGS'), 'success')
 }
 
 async function removeModel(id: string): Promise<void> {
@@ -264,9 +284,11 @@ async function removeModel(id: string): Promise<void> {
   if (!entry) return
   // 删除前确认，避免误删已填写的 API 配置
   const confirmed = await confirmAction({
-    title: '删除模型？',
-    message: `将删除「${entry.name || entry.model || '未命名模型'}」及其 API Key 配置，此操作不可撤销。`,
-    confirmText: '删除',
+    title: t('DELETE_MODEL_CONFIRM'),
+    message: t('THIS_DELETES_AND_ITS_API_KEY', {
+      name: entry.name || entry.model || t('UNTITLED_MODEL'),
+    }),
+    confirmText: t('DELETE'),
     danger: true
   })
   if (!confirmed) return
@@ -284,12 +306,12 @@ function toggleKeyVisibility(id: string): void {
 
 async function copyText(text: string): Promise<void> {
   if (!text) {
-    emit('notify', '内容为空，无需复制', 'error')
+    emit('notify', t('NOTHING_TO_COPY_PLAIN'), 'error')
     return
   }
   try {
     await navigator.clipboard.writeText(text)
-    emit('notify', '已复制到剪贴板')
+    emit('notify', t('COPIED_TO_CLIPBOARD'))
   } catch {
     try {
       const textarea = document.createElement('textarea')
@@ -300,9 +322,9 @@ async function copyText(text: string): Promise<void> {
       textarea.select()
       document.execCommand('copy')
       document.body.removeChild(textarea)
-      emit('notify', '已复制到剪贴板')
+      emit('notify', t('COPIED_TO_CLIPBOARD'))
     } catch {
-      emit('notify', '复制失败，请手动复制', 'error')
+      emit('notify', t('COPY_FAILED_PLEASE_COPY_MANUALLY'), 'error')
     }
   }
 }
@@ -416,7 +438,7 @@ async function testModel(entry: ModelEntry): Promise<void> {
       signal: controller.signal
     })
     if (res.ok) {
-      testResults.value[entry.id] = { ok: true, message: '连接成功' }
+      testResults.value[entry.id] = { ok: true, message: t('CONNECTED') }
     } else {
       const body = await res.text().catch(() => '')
       testResults.value[entry.id] = {
@@ -429,8 +451,8 @@ async function testModel(entry: ModelEntry): Promise<void> {
     testResults.value[entry.id] = {
       ok: false,
       message: aborted
-        ? '连接超时（15s）'
-        : `连接失败：${err instanceof Error ? err.message : String(err)}`
+        ? t('CONNECTION_TIMED_OUT_15S')
+        : t('CONNECTION_FAILED', { message: err instanceof Error ? err.message : String(err) })
     }
   } finally {
     clearTimeout(timer)
@@ -460,7 +482,7 @@ defineExpose({ openEditor, closeModals })
     <!-- 列表视图 -->
     <template v-if="!modelDraft">
       <!-- 当前使用 -->
-      <SettingGroup title="当前使用">
+      <SettingGroup :title="t('CURRENT_MODEL')">
         <div class="flex items-center gap-3 px-4 py-3">
           <span
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ios-blue/10 text-[13px] font-semibold text-ios-blue dark:bg-ios-blue-dark/15 dark:text-ios-blue-dark"
@@ -469,15 +491,15 @@ defineExpose({ openEditor, closeModals })
           </span>
           <div class="min-w-0 flex-1">
             <p class="truncate text-[14px] font-medium text-figma-text dark:text-figma-text-dark">
-              {{ activeEntry?.name || '尚未配置模型' }}
+              {{ activeEntry?.name || t('NO_MODEL_CONFIGURED_YET') }}
             </p>
             <p
               class="truncate text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark"
             >
               {{
                 activeEntry
-                  ? `${providerName(activeEntry)} · ${activeEntry.model || '未填写模型 ID'}`
-                  : '在下方添加模型'
+                  ? `${providerName(activeEntry)} · ${activeEntry.model || t('NO_MODEL_ID')}`
+                  : t('ADD_A_MODEL_BELOW')
               }}
             </p>
           </div>
@@ -485,11 +507,11 @@ defineExpose({ openEditor, closeModals })
       </SettingGroup>
 
       <!-- 模型列表 -->
-      <SettingGroup title="模型列表">
+      <SettingGroup :title="t('MODEL_LIST')">
         <p
           class="px-4 pb-1 pt-3 text-[12px] leading-[18px] text-ios-label-secondary dark:text-ios-label-secondary-dark"
         >
-          点击「编辑」进入模型配置页，可修改服务商、密钥与高级参数。
+          {{ t('CLICK_EDIT_TO_CONFIGURE_THE_PROVIDER') }}
         </p>
 
         <div
@@ -502,25 +524,25 @@ defineExpose({ openEditor, closeModals })
               <span
                 class="truncate text-[14px] font-medium text-figma-text dark:text-figma-text-dark"
               >
-                {{ entry.name || entry.model || '未命名模型' }}
+                {{ entry.name || entry.model || t('UNTITLED_MODEL') }}
               </span>
               <span
                 v-if="isActiveModel(entry.id)"
                 class="shrink-0 rounded-full bg-ios-blue/10 px-1.5 py-0.5 text-[10px] font-semibold text-ios-blue dark:bg-ios-blue-dark/15 dark:text-ios-blue-dark"
               >
-                默认
+                {{ t('DEFAULT') }}
               </span>
               <span
                 v-if="modelNeedsKey(entry)"
                 class="shrink-0 rounded bg-ios-red/10 px-1 text-[10px] font-medium text-ios-red dark:bg-ios-red-dark/15 dark:text-ios-red-dark"
               >
-                缺 Key
+                {{ t('MISSING_KEY') }}
               </span>
             </div>
             <div
               class="mt-0.5 truncate text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark"
             >
-              {{ providerName(entry) }} · {{ entry.model || '未填写模型 ID' }}
+              {{ providerName(entry) }} · {{ entry.model || t('NO_MODEL_ID') }}
             </div>
           </div>
 
@@ -531,14 +553,14 @@ defineExpose({ openEditor, closeModals })
               class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/10 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/15"
               @click="selectModel(entry.id)"
             >
-              设为默认
+              {{ t('SET_AS_DEFAULT') }}
             </button>
             <button
               type="button"
               class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/10 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/15"
               @click="openEditModel(entry)"
             >
-              编辑
+              {{ t('EDIT') }}
             </button>
             <button
               type="button"
@@ -546,7 +568,7 @@ defineExpose({ openEditor, closeModals })
               class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-red transition-colors hover:bg-ios-red/10 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-ios-red-dark dark:hover:bg-ios-red-dark/10"
               @click="removeModel(entry.id)"
             >
-              删除
+              {{ t('DELETE') }}
             </button>
           </div>
         </div>
@@ -559,7 +581,7 @@ defineExpose({ openEditor, closeModals })
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
           </svg>
-          添加模型
+          {{ t('ADD_MODEL') }}
         </button>
       </SettingGroup>
     </template>
@@ -576,7 +598,7 @@ defineExpose({ openEditor, closeModals })
         >
         <button
           type="button"
-          aria-label="返回列表"
+          :aria-label="t('BACK_TO_LIST')"
           class="flex h-8 w-8 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
           @click="closeModelModal"
         >
@@ -591,7 +613,7 @@ defineExpose({ openEditor, closeModals })
           </svg>
         </button>
         <h2 class="text-[15px] font-semibold tracking-[-0.01em]">
-          {{ modelModalMode === 'add' ? '添加模型' : '编辑模型' }}
+          {{ modelModalMode === 'add' ? t('ADD_MODEL') : t('EDIT_MODEL') }}
         </h2>
         <button
           v-if="modelModalMode === 'edit'"
@@ -599,23 +621,23 @@ defineExpose({ openEditor, closeModals })
           class="ml-auto rounded-md px-2 py-1 text-[12px] font-medium text-ios-label-secondary transition-colors hover:bg-ios-fill dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark"
           @click="closeModelModal"
         >
-          取消
+          {{ t('CANCEL') }}
         </button>
         </div>
 
         <!-- 表单主体：整屏滚动（360 窄宽度下全部纵向排布，避免控件被挤压） -->
         <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         <!-- 基础信息 -->
-        <SettingGroup title="基础信息">
+        <SettingGroup :title="t('BASICS')">
         <div class="flex flex-col gap-3 px-4 py-3">
           <div class="flex flex-col gap-1.5">
-            <span class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">显示名称</span>
+            <span class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">{{ t('DISPLAY_NAME') }}</span>
             <input
               ref="nameInputRef"
               v-model="modelDraft.name"
               type="text"
-              aria-label="模型显示名称"
-              placeholder="如 DeepSeek Chat"
+              :aria-label="t('MODEL_DISPLAY_NAME')"
+              :placeholder="t('E_G_DEEPSEEK_CHAT')"
               maxlength="40"
               spellcheck="false"
               :aria-invalid="showNameError"
@@ -631,28 +653,28 @@ defineExpose({ openEditor, closeModals })
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <span class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">服务商</span>
+            <span class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">{{ t('PROVIDER') }}</span>
             <select v-model="modelDraft.provider" :class="selectClass" @change="onDraftProviderChange">
               <option v-for="preset in PROVIDER_PRESETS" :key="preset.id" :value="preset.id">
-                {{ preset.name }}
+                {{ localizedProviderName(preset.id) }}
               </option>
             </select>
             <span v-if="draftProvider" class="text-[11px] leading-4 text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              {{ draftProvider.description }}
+              {{ t(PROVIDER_DESCRIPTION_KEYS[draftProvider.id] ?? draftProvider.description) }}
             </span>
           </div>
 
           <div class="flex flex-col gap-1.5">
             <span class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              模型 ID <span class="text-ios-red dark:text-ios-red-dark">*</span>
+              {{ t('MODEL_ID') }} <span class="text-ios-red dark:text-ios-red-dark">*</span>
             </span>
             <input
               ref="modelInputRef"
               v-model="modelDraft.model"
               type="text"
-              aria-label="API 模型 ID"
+              :aria-label="t('API_MODEL_ID')"
               list="model-page-options"
-              placeholder="如 deepseek-chat / gpt-4o"
+              :placeholder="t('E_G_DEEPSEEK_CHAT_GPT_4O')"
               maxlength="200"
               spellcheck="false"
               :aria-invalid="showModelIdError"
@@ -706,7 +728,7 @@ defineExpose({ openEditor, closeModals })
                 rel="noreferrer"
                 class="text-[12px] font-medium text-ios-blue dark:text-ios-blue-dark"
               >
-                获取 Key
+                {{ t('GET_KEY') }}
               </a>
             </div>
             <div class="relative">
@@ -725,7 +747,7 @@ defineExpose({ openEditor, closeModals })
               <div class="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
                 <button
                   type="button"
-                  :aria-label="visibleApiKeys[modelDraft.id] ? '隐藏密钥' : '显示密钥'"
+                  :aria-label="visibleApiKeys[modelDraft.id] ? t('HIDE_KEY') : t('SHOW_KEY')"
                   class="flex h-7 w-7 items-center justify-center rounded-full text-ios-label-secondary hover:bg-ios-fill hover:text-figma-text dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-figma-text-dark"
                   @click="toggleKeyVisibility(modelDraft.id)"
                 >
@@ -742,7 +764,7 @@ defineExpose({ openEditor, closeModals })
                 </button>
                 <button
                   type="button"
-                  aria-label="复制 API Key"
+                  :aria-label="t('COPY_API_KEY')"
                   class="flex h-7 w-7 items-center justify-center rounded-full text-ios-label-secondary hover:bg-ios-fill hover:text-figma-text dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-figma-text-dark"
                   @click="copyText(modelDraft.apiKey)"
                 >
@@ -754,7 +776,7 @@ defineExpose({ openEditor, closeModals })
               </div>
             </div>
             <span class="text-[11px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              密钥仅保存在本地 Figma clientStorage
+              {{ t('KEYS_ARE_STORED_ONLY_IN_THE') }}
             </span>
             <span
               v-if="showApiKeyError"
@@ -767,8 +789,8 @@ defineExpose({ openEditor, closeModals })
       </SettingGroup>
 
       <!-- 上下文窗口（Token） -->
-      <SettingGroup title="上下文窗口（Token）">
-        <SettingItem label="输入" hint="用于对话历史的截断预算，留空使用最佳默认值">
+      <SettingGroup :title="t('CONTEXT_WINDOW')">
+        <SettingItem :label="t('CONTEXT_INPUT')" :hint="t('BUDGET_FOR_TRIMMING_HISTORY_LEAVE_EMPTY')">
           <div class="flex items-center gap-2">
             <div class="flex shrink-0 items-center gap-1">
               <button
@@ -787,15 +809,15 @@ defineExpose({ openEditor, closeModals })
                 :min="1024"
                 :max="1048576"
                 :step="1024"
-                aria-label="上下文窗口输入"
-                placeholder="默认"
+                :aria-label="t('CONTEXT_WINDOW_INPUT')"
+                :placeholder="t('DEFAULT')"
                 @update:model-value="onDraftContextInput"
               />
             </div>
           </div>
         </SettingItem>
 
-        <SettingItem label="输出" hint="单次回复的最大 Token 数，留空使用最佳默认值">
+        <SettingItem :label="t('CONTEXT_OUTPUT')" :hint="t('MAXIMUM_TOKENS_PER_REPLY_LEAVE_EMPTY')">
           <div class="flex items-center gap-2">
             <div class="flex shrink-0 items-center gap-1">
               <button
@@ -814,8 +836,8 @@ defineExpose({ openEditor, closeModals })
                 :min="1"
                 :max="131072"
                 :step="256"
-                aria-label="上下文窗口输出"
-                placeholder="默认"
+                :aria-label="t('CONTEXT_WINDOW_OUTPUT')"
+                :placeholder="t('DEFAULT')"
                 @update:model-value="onDraftMaxTokens"
               />
             </div>
@@ -824,21 +846,21 @@ defineExpose({ openEditor, closeModals })
       </SettingGroup>
 
       <!-- 对话参数 -->
-      <SettingGroup title="对话参数">
-        <SettingItem label="工具调用轮数" hint="单轮对话内工具往返上限（1 ~ 500）">
+      <SettingGroup :title="t('CHAT_PARAMETERS')">
+        <SettingItem :label="t('TOOL_ROUNDS')" :hint="t('MAXIMUM_TOOL_ROUND_TRIPS_PER_TURN')">
           <div :class="numberInputClass">
             <NumberInput
               :model-value="genNum('toolRounds')"
               :min="1"
               :max="500"
               :step="1"
-              aria-label="工具调用轮数"
+              :aria-label="t('TOOL_ROUNDS')"
               @update:model-value="onDraftToolRounds"
             />
           </div>
         </SettingItem>
 
-        <SettingItem label="支持图片输入" hint="关闭后，消息附带的图片不会传给该模型">
+        <SettingItem :label="t('IMAGE_INPUT')" :hint="t('WHEN_OFF_ATTACHED_IMAGES_ARE_NOT')">
           <div class="flex items-center gap-5">
             <label class="flex cursor-pointer items-center gap-1.5 text-[13px] text-figma-text dark:text-figma-text-dark">
               <input
@@ -848,7 +870,7 @@ defineExpose({ openEditor, closeModals })
                 :value="true"
                 class="accent-ios-blue dark:accent-ios-blue-dark"
               />
-              支持
+              {{ t('SUPPORTED') }}
             </label>
             <label class="flex cursor-pointer items-center gap-1.5 text-[13px] text-figma-text dark:text-figma-text-dark">
               <input
@@ -858,46 +880,46 @@ defineExpose({ openEditor, closeModals })
                 :value="false"
                 class="accent-ios-blue dark:accent-ios-blue-dark"
               />
-              不支持
+              {{ t('NOT_SUPPORTED') }}
             </label>
           </div>
         </SettingItem>
       </SettingGroup>
 
       <!-- 思考模式 -->
-      <SettingGroup title="思考模式">
-        <SettingItem horizontal label="思考模式" hint="开启后按下方档位发送推理参数">
+      <SettingGroup :title="t('THINKING_MODE')">
+        <SettingItem horizontal :label="t('THINKING_MODE')" :hint="t('SEND_REASONING_PARAMETERS_USING_THE_LEVEL')">
           <SettingToggle v-model="modelDraft.generation.thinkingMode" />
         </SettingItem>
 
-        <SettingItem horizontal label="并行工具调用" hint="允许模型在一轮里并行发起多个工具调用">
+        <SettingItem horizontal :label="t('PARALLEL_TOOL_CALLS')" :hint="t('ALLOW_THE_MODEL_TO_ISSUE_MULTIPLE')">
           <SettingToggle v-model="modelDraft.generation.parallelToolCalls" />
         </SettingItem>
 
-        <SettingItem label="推理强度" hint="off 关闭思考；档位越高推理越深、耗时越长">
+        <SettingItem :label="t('REASONING_EFFORT')" :hint="t('OFF_DISABLES_THINKING_HIGHER_LEVELS_REASON')">
           <select
             :value="draftGeneration.reasoningEffort"
             :disabled="!modelDraft.generation.thinkingMode"
             :class="[selectClass, 'disabled:cursor-not-allowed disabled:opacity-40']"
             @change="onDraftReasoningEffort"
           >
-            <option value="off">关闭（off）</option>
-            <option value="low">低（low）</option>
-            <option value="medium">中（medium）</option>
-            <option value="high">高（high）</option>
-            <option value="max">最高（max）</option>
+            <option value="off">{{ t('OFF_OFF') }}</option>
+            <option value="low">{{ t('LOW_LOW') }}</option>
+            <option value="medium">{{ t('MEDIUM_MEDIUM') }}</option>
+            <option value="high">{{ t('HIGH_HIGH') }}</option>
+            <option value="max">{{ t('MAX_MAX') }}</option>
           </select>
         </SettingItem>
 
-        <SettingItem label="思考预算" hint="单次思考的最大 Token 数，留空使用最佳默认值">
+        <SettingItem :label="t('THINKING_BUDGET')" :hint="t('MAXIMUM_TOKENS_PER_THINKING_BLOCK_LEAVE')">
           <div :class="numberInputClass">
             <NumberInput
               :model-value="genNum('thinkingBudget')"
               :min="0"
               :max="131072"
               :step="256"
-              aria-label="思考预算"
-              placeholder="默认"
+              :aria-label="t('THINKING_BUDGET')"
+              :placeholder="t('DEFAULT')"
               @update:model-value="onDraftThinkingBudget"
             />
           </div>
@@ -905,8 +927,8 @@ defineExpose({ openEditor, closeModals })
       </SettingGroup>
 
       <!-- 采样参数 -->
-      <SettingGroup title="采样参数">
-        <SettingItem label="Temperature" hint="0 ~ 2，越高越随机">
+      <SettingGroup :title="t('SAMPLING')">
+        <SettingItem label="Temperature" :hint="t('0_2_HIGHER_IS_MORE_RANDOM')">
           <div :class="numberInputClass">
             <NumberInput
               :model-value="genNum('temperature')"
@@ -914,13 +936,13 @@ defineExpose({ openEditor, closeModals })
               :max="2"
               :step="0.1"
               aria-label="Temperature"
-              placeholder="默认"
+              :placeholder="t('DEFAULT')"
               @update:model-value="onDraftTemperature"
             />
           </div>
         </SettingItem>
 
-        <SettingItem label="Top P" hint="0 ~ 1，核采样阈值">
+        <SettingItem label="Top P" :hint="t('0_1_NUCLEUS_SAMPLING_THRESHOLD')">
           <div :class="numberInputClass">
             <NumberInput
               :model-value="genNum('topP')"
@@ -928,13 +950,13 @@ defineExpose({ openEditor, closeModals })
               :max="1"
               :step="0.05"
               aria-label="Top P"
-              placeholder="默认"
+              :placeholder="t('DEFAULT')"
               @update:model-value="onDraftTopP"
             />
           </div>
         </SettingItem>
 
-        <SettingItem label="Top K" hint="1 ~ 100，留空或 0 表示由模型决定">
+        <SettingItem label="Top K" :hint="t('TOP_K_HINT')">
           <div :class="numberInputClass">
             <NumberInput
               :model-value="genNum('topK')"
@@ -942,7 +964,7 @@ defineExpose({ openEditor, closeModals })
               :max="100"
               :step="1"
               aria-label="Top K"
-              placeholder="默认"
+              :placeholder="t('DEFAULT')"
               @update:model-value="onDraftTopK"
             />
           </div>
@@ -950,7 +972,7 @@ defineExpose({ openEditor, closeModals })
       </SettingGroup>
 
       <!-- 连通性测试 -->
-      <SettingGroup title="连通性测试">
+      <SettingGroup :title="t('CONNECTIVITY_TEST')">
         <div class="flex flex-col gap-2 px-4 py-3">
           <div class="flex items-center gap-2">
             <button
@@ -959,7 +981,7 @@ defineExpose({ openEditor, closeModals })
               class="shrink-0 rounded-lg bg-ios-blue/10 px-3 py-2 text-[13px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/15 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-ios-blue-dark/15 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/20"
               @click="testModelDraft"
             >
-              {{ testingModelId === modelDraft.id ? '测试中…' : '测试连接' }}
+              {{ testingModelId === modelDraft.id ? t('TESTING') : t('TEST_CONNECTION') }}
             </button>
             <span
               v-if="testResults[modelDraft.id]"
@@ -979,18 +1001,18 @@ defineExpose({ openEditor, closeModals })
           class="flex shrink-0 flex-col gap-2 border-t border-figma-border bg-figma-bg px-4 py-3 dark:border-figma-border-dark dark:bg-figma-bg-dark"
         >
           <span class="text-[11px] leading-4 text-ios-label-secondary dark:text-ios-label-secondary-dark">
-            连通性测试会发起一次真实请求，会消耗少量模型 Token
+            {{ t('THE_CONNECTIVITY_TEST_SENDS_A_REAL') }}
           </span>
           <div class="flex items-center gap-2">
             <button type="button" :class="[secondaryBtnClass, 'flex-1']" @click="resetModelDraft">
-              重置
+              {{ t('RESET') }}
             </button>
             <button
               type="button"
               class="flex-1 rounded-lg bg-ios-blue px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-ios-blue/90 dark:bg-ios-blue-dark dark:hover:bg-ios-blue-dark/90"
               @click="saveModelDraft"
             >
-              {{ modelModalMode === 'add' ? '添加模型' : '保存' }}
+              {{ modelModalMode === 'add' ? t('ADD_MODEL') : t('SAVE') }}
             </button>
           </div>
         </div>

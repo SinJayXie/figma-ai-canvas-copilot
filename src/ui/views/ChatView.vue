@@ -7,6 +7,7 @@ import InputBar from '../components/InputBar.vue'
 import TaskPanel from '../components/TaskPanel.vue'
 import { showToast } from '../composables/useToast'
 import { confirmAction } from '../composables/useConfirm'
+import { currentLocale, useT } from '../i18n'
 import { approveTaskAndContinue, runAgent, sendOpsByAction } from '../services/agent.service'
 import { llmService } from '../services/llm.service'
 import { useChatStore, type ChatMsg } from '../store/chat'
@@ -15,6 +16,7 @@ import { useConfigStore } from '../store/config'
 const chatStore = useChatStore()
 const configStore = useConfigStore()
 const { messages, generating } = storeToRefs(chatStore)
+const t = useT()
 
 const emit = defineEmits<{ (e: 'manage-models'): void }>()
 
@@ -162,19 +164,19 @@ async function onApply(msg: ChatMsg): Promise<void> {
     // 手动应用：模型没写正文时补一句结果摘要，保证下一轮历史里有可读上下文
     const appliedMessage = chatStore.messages.find((m) => m.id === msg.id)
     if (appliedMessage && !appliedMessage.content.trim() && !nothingApplied) {
-      chatStore.setContent(msg.id, `已生成 ${result.created} 个节点并应用到画布。`)
+      chatStore.setContent(msg.id, t('APPLY_SUCCESS_SUMMARY', { count: result.created }))
     }
     const parentIds = new Set((result.placements ?? []).map((item) => item.parentId))
-    let detail = `已生成 ${result.created} 个节点`
+    let detail = t('CREATED_NODES_COUNT', { count: result.created })
     if (result.containerName) {
-      detail = `已生成到 ${result.containerName}`
+      detail = t('CREATED_IN', { name: result.containerName })
     } else if (parentIds.size > 1) {
-      detail += '（多个容器）'
+      detail = t('MULTIPLE_CONTAINERS', { detail })
     } else if (parentIds.size === 1 && parentIds.has('page')) {
-      detail += '（页面）'
+      detail = t('PAGE', { detail })
     }
     if (result.errors?.length) {
-      showToast(`部分节点失败：${result.errors[0]}`, 'error')
+      showToast(t('SOME_NODES_FAILED', { message: result.errors[0] }), 'error')
     } else {
       showToast(detail, 'info')
     }
@@ -183,7 +185,9 @@ async function onApply(msg: ChatMsg): Promise<void> {
     chatStore.setOpsStatus(msg.id, 'failed')
     chatStore.addMessage({
       role: 'error',
-      content: `应用到画布失败：${error instanceof Error ? error.message : String(error)}`,
+      content: t('FAILED_TO_APPLY_TO_CANVAS', {
+        message: error instanceof Error ? error.message : String(error),
+      }),
     })
   }
 }
@@ -209,26 +213,26 @@ function onRegenerate(msg: ChatMsg): void {
  */
 async function onDeleteMessage(msg: ChatMsg): Promise<void> {
   if (generating.value) {
-    showToast('生成中，暂不能删除消息', 'info')
+    showToast(t('CANNOT_DELETE_WHILE_GENERATING'), 'info')
     return
   }
   const ok = await confirmAction({
-    title: '删除消息',
-    message: '将删除该消息所属的一轮对话（用户消息与 AI 回复），此操作不可撤销。',
-    confirmText: '删除',
+    title: t('DELETE_MESSAGE'),
+    message: t('DELETE_MESSAGE_CONFIRM'),
+    confirmText: t('DELETE'),
     danger: true,
   })
   if (!ok) return
   const removed = chatStore.removeTurn(msg.id)
   if (removed > 0) {
     void chatStore.persist()
-    showToast('已删除消息', 'info')
+    showToast(t('MESSAGE_DELETED'), 'info')
   }
 }
 
 /** 每 5 条消息显示一次的时间戳（HH:mm） */
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' })
 }
 </script>
 
@@ -252,8 +256,8 @@ function formatTime(ts: number): string {
             <path d="M17 19h4" />
           </svg>
         </div>
-        <p class="text-[15px] font-semibold">试试描述你要设计的页面…</p>
-        <p class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">例如：一个登录页，包含账号输入框与登录按钮</p>
+        <p class="text-[15px] font-semibold">{{ t('CHAT_EMPTY_TITLE') }}</p>
+        <p class="text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark">{{ t('CHAT_EMPTY_EXAMPLE') }}</p>
       </div>
       <!-- 消息列表：每 5 条之间插入居中时间戳 -->
       <div v-else ref="contentRef" class="space-y-3">
@@ -275,7 +279,7 @@ function formatTime(ts: number): string {
             <span class="gen-dot gen-dot-2" />
             <span class="gen-dot gen-dot-3" />
           </span>
-          生成中…
+          {{ t('GENERATING') }}
         </div>
       </div>
 
@@ -284,8 +288,8 @@ function formatTime(ts: number): string {
         <button
           v-if="showScrollToBottom"
           type="button"
-          aria-label="回到底部"
-          title="回到底部"
+          :aria-label="t('BACK_TO_BOTTOM')"
+          :title="t('BACK_TO_BOTTOM')"
           class="absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-figma-border bg-figma-surface text-ios-label-secondary shadow-md transition-colors hover:text-ios-blue dark:border-figma-border-dark dark:bg-figma-surface-dark dark:text-ios-label-secondary-dark dark:hover:text-ios-blue-dark"
           @click="scrollToBottomSmooth"
         >

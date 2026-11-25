@@ -4,10 +4,12 @@ import AgentSteps from './AgentSteps.vue'
 import HtmlPreview from './HtmlPreview.vue'
 import OpPreviewCard from './OpPreviewCard.vue'
 import { showToast } from '../composables/useToast'
+import { useT } from '../i18n'
 import type { ChatMsg } from '../store/chat'
 import { extractHtmlBlocks, renderMarkdown, stripHtmlBlocks } from '../utils/markdown'
 
 const props = defineProps<{ msg: ChatMsg }>()
+const t = useT()
 
 defineEmits<{
   (e: 'apply'): void
@@ -35,12 +37,12 @@ const renderedContent = computed(() =>
 async function copyMessage(): Promise<void> {
   const text = props.msg.content ?? ''
   if (!text.trim()) {
-    showToast('没有可复制的文本', 'info')
+    showToast(t('NOTHING_TO_COPY'), 'info')
     return
   }
   try {
     await navigator.clipboard.writeText(text)
-    showToast('已复制消息', 'info')
+    showToast(t('MESSAGE_COPIED'), 'info')
   } catch {
     try {
       const area = document.createElement('textarea')
@@ -51,9 +53,9 @@ async function copyMessage(): Promise<void> {
       area.select()
       const ok = document.execCommand('copy')
       document.body.removeChild(area)
-      showToast(ok ? '已复制消息' : '复制失败', ok ? 'info' : 'error')
+      showToast(ok ? t('MESSAGE_COPIED') : t('COPY_FAILED'), ok ? 'info' : 'error')
     } catch {
-      showToast('复制失败', 'error')
+      showToast(t('COPY_FAILED'), 'error')
     }
   }
 }
@@ -78,8 +80,8 @@ const bubbleClass = computed(() => {
       <button
         type="button"
         class="msg-action-btn"
-        title="复制消息"
-        aria-label="复制消息"
+        :title="t('COPY_MESSAGE')"
+        :aria-label="t('COPY_MESSAGE')"
         @click="copyMessage"
       >
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -90,8 +92,8 @@ const bubbleClass = computed(() => {
       <button
         type="button"
         class="msg-action-btn msg-action-btn--danger"
-        title="删除该轮消息"
-        aria-label="删除该轮消息"
+        :title="t('DELETE_THIS_TURN')"
+        :aria-label="t('DELETE_THIS_TURN')"
         @click="$emit('delete')"
       >
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -168,7 +170,7 @@ const bubbleClass = computed(() => {
         v-if="!msg.ops && msg.opsCount"
         class="mt-2 inline-flex items-center gap-1 rounded-md bg-ios-fill px-2 py-1 text-[11px] text-ios-label-secondary dark:bg-ios-fill-dark dark:text-ios-label-secondary-dark"
       >
-        共 {{ msg.opsCount }} 个节点{{ msg.opsStatus === 'applied' ? ' · 已应用' : '' }}
+        {{ t('NODES', { count: msg.opsCount }) }}{{ msg.opsStatus === 'applied' ? t('APPLIED') : '' }}
       </div>
       <OpPreviewCard
         v-if="msg.ops && msg.ops.length > 0"
@@ -184,8 +186,8 @@ const bubbleClass = computed(() => {
       <button
         type="button"
         class="msg-action-btn"
-        title="复制消息"
-        aria-label="复制消息"
+        :title="t('COPY_MESSAGE')"
+        :aria-label="t('COPY_MESSAGE')"
         @click="copyMessage"
       >
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -196,8 +198,8 @@ const bubbleClass = computed(() => {
       <button
         type="button"
         class="msg-action-btn msg-action-btn--danger"
-        title="删除该轮消息"
-        aria-label="删除该轮消息"
+        :title="t('DELETE_THIS_TURN')"
+        :aria-label="t('DELETE_THIS_TURN')"
         @click="$emit('delete')"
       >
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

@@ -2,6 +2,7 @@
  * 日期工具（本地执行，不走 Figma 沙箱）
  * 模型本身没有时钟、也不能可靠推算日期，这里提供真实的「现在」与日期加减 / 差值计算。
  */
+import { currentLocale, t } from '../i18n'
 
 export const DATE_TOOL_NAMES = ['get_current_time', 'date_math'] as const
 
@@ -24,6 +25,7 @@ interface DateDescription {
   time: string
   weekday: string
   weekdayZh: string
+  weekdayLocalized: string
   timezone: string
   utcOffset: string
   /** 毫秒时间戳 */
@@ -79,6 +81,10 @@ function describe(date: Date, timeZone: string): DateDescription {
     time: timePart,
     weekday: new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(date),
     weekdayZh: new Intl.DateTimeFormat('zh-CN', { timeZone, weekday: 'long' }).format(date),
+    weekdayLocalized: new Intl.DateTimeFormat(currentLocale(), {
+      timeZone,
+      weekday: 'long',
+    }).format(date),
     timezone: timeZone,
     utcOffset: offsetPart && offsetPart !== 'GMT' ? offsetPart : '+00:00',
     timestamp: date.getTime(),
@@ -129,25 +135,25 @@ export function runDateTool(name: string, argsJson: string): DateToolResult {
   const args = readArgs(argsJson)
   const timeZone = readTimeZone(args.timezone)
   if (!timeZone) {
-    return errorContent(`时区无法识别：${String(args.timezone)}（示例：Asia/Shanghai）`)
+    return errorContent(t('INVALID_DATE_TIMEZONE', { value: String(args.timezone) }))
   }
 
   if (name === 'get_current_time') {
     const now = describe(new Date(), timeZone)
     return {
       content: JSON.stringify(now),
-      detail: `${now.local} ${now.weekdayZh}`,
+      detail: `${now.local} ${now.weekdayLocalized}`,
     }
   }
 
   if (name === 'date_math') {
     const base = args.base === undefined || args.base === '' ? new Date() : parseDate(args.base)
-    if (!base) return errorContent(`base 无法解析为日期：${String(args.base)}`)
+    if (!base) return errorContent(t('INVALID_BASE_DATE', { value: String(args.base) }))
 
     // 传了 to：计算两个时间点的差值
     if (args.to !== undefined && args.to !== '') {
       const target = parseDate(args.to)
-      if (!target) return errorContent(`to 无法解析为日期：${String(args.to)}`)
+      if (!target) return errorContent(t('INVALID_TO_DATE', { value: String(args.to) }))
       const diff = target.getTime() - base.getTime()
       const sign = diff < 0 ? '-' : '+'
       const abs = Math.abs(diff)
@@ -161,15 +167,15 @@ export function runDateTool(name: string, argsJson: string): DateToolResult {
           diffMs: diff,
           diffDays: diff / UNIT_MS.d,
           readable: `${sign}${days}d ${hours}h ${minutes}m`,
-          note: '目标时间晚于起始时间时差值为正',
+          note: 'Positive when the target time is later than the base time',
         }),
-        detail: `相差 ${sign}${days}d ${hours}h`,
+        detail: t('DATE_DIFF_DETAIL', { value: `${sign}${days}d ${hours}h` }),
       }
     }
 
     const offset = parseOffset(args.offset)
     if (offset === null) {
-      return errorContent('offset 需带单位，例如 3d / -2h / 30m / 1w')
+      return errorContent(t('INVALID_OFFSET'))
     }
     const result = describe(new Date(base.getTime() + offset), timeZone)
     return {
@@ -178,9 +184,9 @@ export function runDateTool(name: string, argsJson: string): DateToolResult {
         offset: String(args.offset),
         result,
       }),
-      detail: `${result.local} ${result.weekdayZh}`,
+      detail: `${result.local} ${result.weekdayLocalized}`,
     }
   }
 
-  return errorContent(`未知的日期工具：${name}`)
+  return errorContent(t('UNKNOWN_DATE_TOOL', { value: name }))
 }

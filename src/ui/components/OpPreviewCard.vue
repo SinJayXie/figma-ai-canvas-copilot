@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { mdiAlertCircle, mdiCheckCircle, mdiChevronDown, mdiChevronUp, mdiCodeJson, mdiCursorDefault, mdiLayers, mdiLoading, mdiRefresh } from '@mdi/js'
 import type { NodeOp } from '../../../types/node.types'
+import { useT } from '../i18n'
 import type { OpsStatus } from '../store/chat'
 
 const props = withDefaults(
@@ -12,6 +13,8 @@ const props = withDefaults(
   { status: 'pending' },
 )
 
+const t = useT()
+
 defineEmits<{
   (e: 'apply'): void
   (e: 'regenerate'): void
@@ -19,11 +22,11 @@ defineEmits<{
 
 /** 节点类型中文标签 */
 const NODE_TYPE_LABELS: Record<string, string> = {
-  frame: '框架',
-  text: '文本',
-  rect: '矩形',
-  ellipse: '圆形',
-  line: '线条',
+  frame: 'FRAME',
+  text: 'TEXT',
+  rect: 'RECTANGLE',
+  ellipse: 'ELLIPSE',
+  line: 'LINE',
 }
 
 interface OpStats {
@@ -49,7 +52,7 @@ const stats = computed<OpStats>(() => {
   for (const op of props.ops) walk(op)
   const typeCounts = Array.from(counts.entries()).map(([type, count]) => ({
     type,
-    label: NODE_TYPE_LABELS[type] ?? type,
+    label: t(NODE_TYPE_LABELS[type] ?? type),
     count,
   }))
   return { total, creates, updates, typeCounts }
@@ -74,10 +77,10 @@ const hiddenTypeCount = computed(() =>
         <svg class="h-3.5 w-3.5 text-ios-blue dark:text-ios-blue-dark" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="mdiLayers" fill="currentColor" />
         </svg>
-        画布操作
+        {{ t('CANVAS_CHANGES') }}
       </span>
       <span class="min-w-0 truncate text-[11px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-        共 {{ stats.total }} · 新 {{ stats.creates }} · 改 {{ stats.updates }}
+        {{ t('OPS_SUMMARY', { total: stats.total, creates: stats.creates, updates: stats.updates }) }}
       </span>
     </div>
     <!-- 类型分布 -->
@@ -104,7 +107,7 @@ const hiddenTypeCount = computed(() =>
       <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
         <path :d="mdiLoading" fill="currentColor" />
       </svg>
-      正在应用到画布…
+      {{ t('APPLYING_TO_CANVAS') }}
     </div>
     <div
       v-else-if="status === 'applied'"
@@ -113,7 +116,7 @@ const hiddenTypeCount = computed(() =>
       <svg class="h-3 w-3" viewBox="0 0 24 24" aria-hidden="true">
         <path :d="mdiCheckCircle" fill="currentColor" />
       </svg>
-      已应用到画布
+      {{ t('APPLIED_TO_CANVAS') }}
     </div>
     <div
       v-else-if="status === 'failed'"
@@ -122,7 +125,7 @@ const hiddenTypeCount = computed(() =>
       <svg class="h-3 w-3" viewBox="0 0 24 24" aria-hidden="true">
         <path :d="mdiAlertCircle" fill="currentColor" />
       </svg>
-      应用失败，请重试
+      {{ t('APPLY_FAILED_PLEASE_RETRY') }}
     </div>
     <!-- 操作按钮：单行紧凑布局 -->
     <div class="mt-2 flex items-center gap-1.5">
@@ -136,7 +139,7 @@ const hiddenTypeCount = computed(() =>
         <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="mdiCursorDefault" fill="currentColor" />
         </svg>
-        <span class="truncate">{{ status === 'applying' ? '应用中…' : '应用' }}</span>
+        <span class="truncate">{{ status === 'applying' ? t('APPLYING') : t('APPLY') }}</span>
       </button>
       <button
         type="button"
@@ -147,7 +150,7 @@ const hiddenTypeCount = computed(() =>
         <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="mdiRefresh" fill="currentColor" />
         </svg>
-        <span class="truncate">重新生成</span>
+        <span class="truncate">{{ t('REGENERATE') }}</span>
       </button>
       <button
         type="button"
@@ -157,7 +160,7 @@ const hiddenTypeCount = computed(() =>
         <svg class="h-3 w-3" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="mdiCodeJson" fill="currentColor" />
         </svg>
-        <span>{{ showDetail ? '收起' : '详情' }}</span>
+        <span>{{ showDetail ? t('COLLAPSE') : t('DETAILS') }}</span>
         <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" aria-hidden="true">
           <path :d="showDetail ? mdiChevronUp : mdiChevronDown" fill="currentColor" />
         </svg>

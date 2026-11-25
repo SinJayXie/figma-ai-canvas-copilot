@@ -5,6 +5,7 @@
  */
 import { ref } from 'vue'
 import { useConfigStore } from '../../store/config'
+import { useT } from '../../i18n'
 import { DEFAULT_SYSTEM_PROMPT } from '../../utils/promptBuilder'
 import SettingGroup from '../../components/SettingGroup.vue'
 import SettingItem from '../../components/SettingItem.vue'
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useConfigStore()
+const t = useT()
 
 const promptExpanded = ref(false)
 const MAX_PROMPT_LENGTH = 2000
@@ -22,13 +24,13 @@ const MAX_PROMPT_LENGTH = 2000
 
 <template>
   <div class="flex flex-col gap-5">
-    <SettingGroup title="内置默认提示词">
+    <SettingGroup :title="t('BUILTIN_PROMPT')">
       <button
         type="button"
         class="flex w-full items-center justify-between px-4 py-3 text-[14px] font-medium text-figma-text transition-colors hover:bg-ios-fill dark:text-figma-text-dark dark:hover:bg-ios-fill-dark"
         @click="promptExpanded = !promptExpanded"
       >
-        <span>默认系统提示词（只读）</span>
+        <span>{{ t('DEFAULT_SYSTEM_PROMPT') }}</span>
         <svg
           width="12"
           height="12"
@@ -53,16 +55,16 @@ const MAX_PROMPT_LENGTH = 2000
       >
     </SettingGroup>
 
-    <SettingGroup title="自定义追加提示词">
+    <SettingGroup :title="t('CUSTOM_PROMPT')">
       <SettingItem
-        label="自定义追加提示词"
-        hint="自定义提示词会追加在默认提示词后，用于补充团队设计规范"
+        :label="t('CUSTOM_PROMPT')"
+        :hint="t('APPENDED_AFTER_THE_DEFAULT_PROMPT_FOR')"
       >
         <textarea
           v-model="store.config.customPrompt"
           rows="6"
           maxlength="2000"
-          placeholder="例如：所有主按钮必须使用品牌色 #2563EB，圆角 8px"
+          :placeholder="t('E_G_ALL_PRIMARY_BUTTONS_USE')"
           :class="[inputClass, 'resize-none leading-5']"
         />
         <div class="flex items-center justify-between">
@@ -72,9 +74,9 @@ const MAX_PROMPT_LENGTH = 2000
           <button
             type="button"
             :class="secondaryBtnClass"
-            @click="store.update({ customPrompt: '' }); emit('notify', '自定义提示词已重置')"
+            @click="store.update({ customPrompt: '' }); emit('notify', t('CUSTOM_PROMPT_RESET'))"
           >
-            重置
+            {{ t('RESET') }}
           </button>
         </div>
       </SettingItem>

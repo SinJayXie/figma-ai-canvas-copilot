@@ -7,6 +7,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { showToast } from '../composables/useToast'
+import { useT } from '../i18n'
 import { buildHtmlZip, downloadBlob, resolveHtmlAssets } from '../services/htmlAsset.service'
 import { extractAssetRefs } from '../utils/htmlAssets'
 
@@ -14,13 +15,14 @@ const props = withDefaults(defineProps<{ code: string; index?: number }>(), { in
 
 const mode = ref<'preview' | 'code'>('preview')
 const fullscreen = ref(false)
+const t = useT()
 /** 实际交给 iframe 的 HTML（素材已替换为 blob URL） */
 const previewHtml = ref(props.code)
 const assetLoading = ref(false)
 const assetFailed = ref<string[]>([])
 const downloading = ref(false)
 
-const label = computed(() => (props.index > 0 ? `HTML 预览 ${props.index}` : 'HTML 预览'))
+const label = computed(() => (props.index > 0 ? t('HTML_PREVIEW', { index: props.index }) : t('HTML_PREVIEW_LABEL')))
 const hasAssets = computed(() => extractAssetRefs(props.code).length > 0)
 
 function tabClass(active: boolean): string {
@@ -66,9 +68,14 @@ async function downloadZip(): Promise<void> {
   try {
     const { blob, name, failed } = await buildHtmlZip(props.code)
     downloadBlob(blob, name)
-    showToast(failed.length > 0 ? `已下载 ZIP，${failed.length} 个素材导出失败` : '已下载 ZIP（含素材）', failed.length > 0 ? 'error' : 'info')
+    showToast(
+      failed.length > 0
+        ? t('ZIP_DOWNLOADED_ASSETS_FAILED', { count: failed.length })
+        : t('ZIP_DOWNLOADED_WITH_ASSETS'),
+      failed.length > 0 ? 'error' : 'info',
+    )
   } catch (err) {
-    showToast(err instanceof Error ? `导出失败：${err.message}` : '导出失败', 'error')
+    showToast(err instanceof Error ? t('EXPORT_FAILED', { message: err.message }) : t('EXPORT_FAILED_PLAIN'), 'error')
   } finally {
     downloading.value = false
   }
@@ -96,16 +103,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       </span>
       <div class="flex shrink-0 items-center gap-0.5">
         <button type="button" :class="tabClass(mode === 'preview')" @click="mode = 'preview'">
-          预览
+          {{ t('PREVIEW') }}
         </button>
         <button type="button" :class="tabClass(mode === 'code')" @click="mode = 'code'">
-          代码
+          {{ t('CODE') }}
         </button>
         <button
           type="button"
           class="ml-0.5 flex h-5 w-5 items-center justify-center rounded-md text-ios-label-secondary transition-colors hover:bg-ios-fill hover:text-figma-text disabled:cursor-not-allowed disabled:opacity-40 dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-figma-text-dark"
-          title="下载 ZIP（含素材）"
-          aria-label="下载 ZIP"
+          :title="t('DOWNLOAD_ZIP_WITH_ASSETS')"
+          :aria-label="t('DOWNLOAD_ZIP')"
           :disabled="downloading"
           @click="downloadZip"
         >
@@ -117,8 +124,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <button
           type="button"
           class="flex h-5 w-5 items-center justify-center rounded-md text-ios-label-secondary transition-colors hover:bg-ios-fill hover:text-figma-text dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark dark:hover:text-figma-text-dark"
-          title="全屏预览"
-          aria-label="全屏预览"
+          :title="t('FULL_SCREEN_PREVIEW')"
+          :aria-label="t('FULL_SCREEN_PREVIEW')"
           @click="fullscreen = true"
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -132,18 +139,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       v-if="assetFailed.length > 0"
       class="border-b border-figma-border px-2.5 py-1 text-[10px] leading-4 text-ios-red dark:border-figma-border-dark dark:text-ios-red-dark"
     >
-      {{ assetFailed.length }} 个素材导出失败（{{ assetFailed.join('、') }}），预览中会显示空白
+      {{ t('ASSETS_FAILED_PREVIEW_BLANK', { count: assetFailed.length, names: assetFailed.join(', ') }) }}
     </p>
 
     <div v-if="mode === 'preview' && assetLoading" class="flex h-[280px] items-center justify-center bg-figma-surface text-[11px] text-ios-label-secondary dark:bg-figma-surface-dark dark:text-ios-label-secondary-dark">
-      正在从画布导出素材…
+      {{ t('EXPORTING_ASSETS_FROM_THE_CANVAS') }}
     </div>
     <iframe
       v-else-if="mode === 'preview'"
       :srcdoc="previewHtml"
       sandbox="allow-same-origin"
       class="h-[280px] w-full border-0 bg-white"
-      title="HTML 预览"
+      :title="t('HTML_PREVIEW_LABEL')"
     />
     <pre
       v-else
@@ -164,19 +171,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               {{ label }}
             </span>
             <span v-if="hasAssets" class="shrink-0 text-[10px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-              {{ assetLoading ? '导出素材中…' : assetFailed.length > 0 ? `${assetFailed.length} 个素材失败` : '素材已就绪' }}
+              {{ assetLoading ? t('EXPORTING_ASSETS') : assetFailed.length > 0 ? t('ASSETS_FAILED', { count: assetFailed.length }) : t('ASSETS_READY') }}
             </span>
             <button type="button" :class="tabClass(mode === 'preview')" @click="mode = 'preview'">
-              预览
+              {{ t('PREVIEW') }}
             </button>
             <button type="button" :class="tabClass(mode === 'code')" @click="mode = 'code'">
-              代码
+              {{ t('CODE') }}
             </button>
             <button
               type="button"
               class="flex h-7 w-7 items-center justify-center rounded-full text-ios-label-secondary transition-colors hover:bg-ios-fill dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark"
-              aria-label="退出全屏"
-              title="退出全屏（Esc）"
+              :aria-label="t('EXIT_FULL_SCREEN')"
+              :title="t('EXIT_FULL_SCREEN_ESC')"
               @click="fullscreen = false"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -190,7 +197,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             :srcdoc="previewHtml"
             sandbox="allow-same-origin"
             class="min-h-0 w-full flex-1 border-0 bg-white"
-            title="HTML 全屏预览"
+            :title="t('FULL_SCREEN_HTML_PREVIEW')"
           />
           <pre
             v-else

@@ -21,6 +21,7 @@ coverage/
 # Editor and OS files
 .idea/
 .vscode/
+.trae-html-share-packages/
 .DS_Store
 Thumbs.db
 *.local

@@ -163,16 +163,16 @@ function restoreSteps(raw: unknown): AgentStep[] | undefined {
   return steps.length > 0 ? steps : undefined
 }
 
-/** 由首条用户消息生成会话标题 */
+/** 由首条用户消息生成会话标题；空标题表示「新对话」，由 UI 按当前语言展示 */
 function deriveTitle(messages: ChatMsg[]): string {
   const first = messages.find((m) => m.role === 'user' && m.content.trim())
   const text = (first?.content ?? '').replace(/\s+/g, ' ').trim()
-  if (!text) return '新对话'
+  if (!text) return ''
   return text.length > TITLE_LIMIT ? `${text.slice(0, TITLE_LIMIT)}…` : text
 }
 
 function createConversation(): Conversation {
-  return { id: generateId('conv'), title: '新对话', messages: [], tasks: [], updatedAt: Date.now() }
+  return { id: generateId('conv'), title: '', messages: [], tasks: [], updatedAt: Date.now() }
 }
 
 /** 任务列表上限 / 标题长度上限 */
@@ -267,6 +267,9 @@ function sanitizeMessage(m: ChatMsg): ChatMsg {
   }
 }
 
+/** 旧版固定标题：仅在没有消息时视为占位标题，避免误伤用户真实标题 */
+const LEGACY_PLACEHOLDER_TITLES = new Set(['新对话', '新增對話', 'New chat'])
+
 /** 归一化持久化的会话对象 */
 function normalizeConversation(item: unknown): Conversation | null {
   if (!item || typeof item !== 'object') return null
@@ -274,7 +277,10 @@ function normalizeConversation(item: unknown): Conversation | null {
   const messages = Array.isArray(raw.messages)
     ? raw.messages.map(normalizeStoredMessage).filter((m): m is ChatMsg => m !== null)
     : []
-  const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : deriveTitle(messages)
+  const rawTitle = typeof raw.title === 'string' ? raw.title.trim() : ''
+  const isPlaceholder =
+    !rawTitle || (messages.length === 0 && LEGACY_PLACEHOLDER_TITLES.has(rawTitle))
+  const title = isPlaceholder ? (messages.length > 0 ? deriveTitle(messages) : '') : rawTitle
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : generateId('conv'),
     title,
@@ -331,7 +337,7 @@ export const useChatStore = defineStore('chat', {
       active.messages.push(full)
       active.updatedAt = Date.now()
       // 首个用户消息作为标题
-      if (full.role === 'user' && (!active.title || active.title === '新对话')) {
+      if (full.role === 'user' && !active.title) {
         active.title = deriveTitle([full])
       }
       return full
@@ -481,7 +487,7 @@ export const useChatStore = defineStore('chat', {
       const active = this.ensureActiveConversation()
       this.messages.splice(0, this.messages.length)
       active.tasks = []
-      active.title = '新对话'
+      active.title = ''
       active.updatedAt = Date.now()
     },
     /** 新建会话；当前会话为空时直接复用，避免产生大量空会话 */

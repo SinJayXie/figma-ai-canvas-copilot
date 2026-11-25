@@ -8,6 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import { getProviderPreset, resolveActiveModelEntry } from '../../types/config.types'
 import { confirmAction } from './composables/useConfirm'
 import { useToast } from './composables/useToast'
+import { currentLocale, useT } from './i18n'
 import { useCanvasStore } from './store/canvas'
 import { useChatStore, type Conversation } from './store/chat'
 import { useConfigStore } from './store/config'
@@ -23,6 +24,7 @@ const configStore = useConfigStore()
 const chatStore = useChatStore()
 const canvasStore = useCanvasStore()
 const toast = useToast()
+const t = useT()
 
 /** 清空对话二次确认状态（3s 未确认自动复位） */
 const confirmingClear = ref(false)
@@ -127,9 +129,9 @@ function onSwitchConversation(id: string): void {
 async function onDeleteConversation(conversation: Conversation): Promise<void> {
   if (chatStore.generating) return
   const confirmed = await confirmAction({
-    title: '删除对话？',
-    message: `将删除对话「${conversation.title}」及其全部消息，此操作不可撤销。`,
-    confirmText: '删除',
+    title: t('DELETE_CONVERSATION_CONFIRM'),
+    message: t('DELETE_CONVERSATION_MESSAGE', { title: conversation.title || t('NEW_CHAT') }),
+    confirmText: t('DELETE'),
     danger: true
   })
   if (!confirmed) return
@@ -139,10 +141,10 @@ async function onDeleteConversation(conversation: Conversation): Promise<void> {
 /** 相对时间：刚刚 / N 分钟前 / N 小时前 / MM-DD */
 function formatRelative(timestamp: number): string {
   const diff = Date.now() - timestamp
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  return new Date(timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  if (diff < 60_000) return t('JUST_NOW')
+  if (diff < 3_600_000) return t('MIN_AGO', { count: Math.floor(diff / 60_000) })
+  if (diff < 86_400_000) return t('H_AGO', { count: Math.floor(diff / 3_600_000) })
+  return new Date(timestamp).toLocaleDateString(currentLocale(), { month: '2-digit', day: '2-digit' })
 }
 
 onMounted(async () => {
@@ -166,7 +168,7 @@ onMounted(async () => {
         <h1 class="text-[15px] font-semibold tracking-[-0.01em]">AI Canvas Copilot</h1>
         <span
           class="rounded-full bg-ios-fill px-1.5 py-px text-[10px] font-medium leading-4 text-ios-label-secondary dark:bg-ios-fill-dark dark:text-ios-label-secondary-dark"
-          :title="`版本 ${appVersion}`"
+          :title="t('VERSION', { version: appVersion })"
         >
           v{{ appVersion }}
         </span>
@@ -176,7 +178,7 @@ onMounted(async () => {
         <div class="relative">
           <button
             type="button"
-            title="对话历史"
+            :title="t('HISTORY')"
             :disabled="chatStore.generating"
             class="flex h-8 w-8 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
             @click="toggleHistory"
@@ -198,8 +200,8 @@ onMounted(async () => {
                 <div
                   class="group flex shrink-0 cursor-ns-resize touch-none items-center justify-center py-2.5"
                   role="separator"
-                  aria-label="拖拽调整高度"
-                  title="拖拽调整高度，双击恢复默认"
+                  :aria-label="t('DRAG_TO_RESIZE')"
+                  :title="t('DRAG_TO_RESIZE_HINT')"
                   @pointerdown.prevent="startSheetResize"
                   @dblclick="sheetHeight = null"
                 >
@@ -207,7 +209,7 @@ onMounted(async () => {
                 </div>
 
                 <div class="flex shrink-0 items-center justify-between px-3 pb-2.5">
-                  <span class="text-[13px] font-semibold text-figma-text dark:text-figma-text-dark">对话历史</span>
+                  <span class="text-[13px] font-semibold text-figma-text dark:text-figma-text-dark">{{ t('HISTORY') }}</span>
                   <div class="flex items-center gap-1">
                     <button
                       type="button"
@@ -215,11 +217,11 @@ onMounted(async () => {
                       class="rounded-md px-2 py-1 text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/10 disabled:cursor-not-allowed disabled:opacity-40 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/15"
                       @click="onNewConversation"
                     >
-                      新建对话
+                      {{ t('NEW_CHAT') }}
                     </button>
                     <button
                       type="button"
-                      aria-label="关闭"
+                      :aria-label="t('CLOSE')"
                       class="flex h-7 w-7 items-center justify-center rounded-full text-ios-label-secondary transition-colors hover:bg-ios-fill dark:text-ios-label-secondary-dark dark:hover:bg-ios-fill-dark"
                       @click="historyOpen = false"
                     >
@@ -250,22 +252,22 @@ onMounted(async () => {
                               : 'font-medium text-figma-text dark:text-figma-text-dark'
                           "
                         >
-                          {{ conversation.title }}
+                          {{ conversation.title || t('NEW_CHAT') }}
                         </span>
                         <span
                           v-if="conversation.id === chatStore.activeConversationId"
                           class="shrink-0 rounded-full bg-ios-blue/10 px-1.5 py-0.5 text-[10px] font-semibold text-ios-blue dark:bg-ios-blue-dark/15 dark:text-ios-blue-dark"
                         >
-                          当前
+                          {{ t('CURRENT') }}
                         </span>
                       </span>
                       <span class="mt-0.5 block text-[11px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-                        {{ formatRelative(conversation.updatedAt) }} · {{ conversation.messages.length }} 条消息
+                        {{ formatRelative(conversation.updatedAt) }} · {{ t('MESSAGES', { count: conversation.messages.length }) }}
                       </span>
                     </button>
                     <button
                       type="button"
-                      aria-label="删除对话"
+                      :aria-label="t('DELETE_CONVERSATION')"
                       class="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ios-red opacity-70 transition-colors hover:bg-ios-red/10 hover:opacity-100 dark:text-ios-red-dark dark:hover:bg-ios-red-dark/10"
                       @click.stop="onDeleteConversation(conversation)"
                     >
@@ -281,7 +283,7 @@ onMounted(async () => {
                     v-if="chatStore.sortedConversations.length === 0"
                     class="px-3 py-6 text-center text-[12px] text-ios-label-secondary dark:text-ios-label-secondary-dark"
                   >
-                    暂无历史对话
+                    {{ t('NO_CONVERSATIONS_YET') }}
                   </p>
                 </div>
               </div>
@@ -291,7 +293,7 @@ onMounted(async () => {
 
         <button
           type="button"
-          :title="page === 'chat' ? '设置' : '返回对话'"
+          :title="page === 'chat' ? t('SETTINGS') : t('BACK_TO_CHAT')"
           class="flex h-8 w-8 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
           @click="toggleSettings"
         >
@@ -306,7 +308,7 @@ onMounted(async () => {
         <div class="relative">
           <button
             type="button"
-            title="清空对话"
+            :title="t('CLEAR_CHAT')"
             :disabled="chatStore.generating"
             class="flex h-8 w-8 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill hover:text-ios-red disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark dark:hover:text-ios-red-dark"
             @click="onClearClick"
@@ -324,9 +326,9 @@ onMounted(async () => {
               v-if="confirmingClear"
               class="absolute right-0 top-9 z-50 flex items-center gap-2 whitespace-nowrap rounded-xl border border-figma-border bg-figma-surface px-2.5 py-1.5 text-[12px] dark:border-figma-border-dark dark:bg-figma-surface-dark"
             >
-              <span class="text-figma-text dark:text-figma-text-dark">确认清空对话？</span>
-              <button type="button" class="font-medium text-ios-red transition-opacity hover:opacity-80 dark:text-ios-red-dark" @click="onClearClick">清空</button>
-              <button type="button" class="text-ios-blue transition-opacity hover:opacity-80 dark:text-ios-blue-dark" @click="onCancelClear">取消</button>
+              <span class="text-figma-text dark:text-figma-text-dark">{{ t('CLEAR_CHAT_CONFIRM') }}</span>
+              <button type="button" class="font-medium text-ios-red transition-opacity hover:opacity-80 dark:text-ios-red-dark" @click="onClearClick">{{ t('CLEAR') }}</button>
+              <button type="button" class="text-ios-blue transition-opacity hover:opacity-80 dark:text-ios-blue-dark" @click="onCancelClear">{{ t('CANCEL') }}</button>
             </div>
           </Transition>
         </div>

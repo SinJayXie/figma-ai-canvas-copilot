@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { acceptConfirm, cancelConfirm, useConfirm } from '../composables/useConfirm'
+import { acceptConfirm, cancelConfirm, discardConfirm, useConfirm } from '../composables/useConfirm'
 
 const state = useConfirm()
 const cancelRef = ref<HTMLButtonElement | null>(null)
@@ -50,7 +50,41 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
             {{ state.message }}
           </p>
         </div>
+        <!-- 三选项：确认 / 放弃 / 取消（竖排，避免小屏挤压） -->
         <div
+          v-if="state.discardText"
+          class="border-t border-figma-border text-[14px] dark:border-figma-border-dark"
+        >
+          <button
+            type="button"
+            class="w-full border-b border-figma-border py-3 font-semibold transition-colors hover:bg-ios-fill focus:outline-none dark:border-figma-border-dark dark:hover:bg-ios-fill-dark"
+            :class="
+              state.danger
+                ? 'text-ios-red dark:text-ios-red-dark'
+                : 'text-ios-blue dark:text-ios-blue-dark'
+            "
+            @click="acceptConfirm"
+          >
+            {{ state.confirmText }}
+          </button>
+          <button
+            type="button"
+            class="w-full border-b border-figma-border py-3 font-medium text-ios-red transition-colors hover:bg-ios-fill focus:outline-none dark:border-figma-border-dark dark:text-ios-red-dark dark:hover:bg-ios-fill-dark"
+            @click="discardConfirm"
+          >
+            {{ state.discardText }}
+          </button>
+          <button
+            ref="cancelRef"
+            type="button"
+            class="w-full py-3 font-medium text-ios-blue transition-colors hover:bg-ios-fill focus:outline-none dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
+            @click="cancelConfirm"
+          >
+            {{ state.cancelText }}
+          </button>
+        </div>
+        <div
+          v-else
           class="grid grid-cols-2 border-t border-figma-border text-[14px] dark:border-figma-border-dark"
         >
           <button

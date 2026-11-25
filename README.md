@@ -4,7 +4,7 @@ English | [中文](README_zh-cn.md) | [GitHub](https://github.com/SinJayXie/figm
 
 AI Canvas Copilot is a Figma plugin that turns natural-language chat into real, editable canvas work. Instead of generating images, it creates and modifies native Figma layers — frames, text, components, styles, variables, and prototype interactions — so the result remains as editable and reusable as a hand-made design.
 
-- Version: v1.1.0
+- Version: v1.2.0
 - Runtime: Figma Design (`editorType: figma`)
 - Architecture: front-end only, no self-hosted backend, bring your own model API
 
@@ -54,6 +54,7 @@ AI Canvas Copilot is a Figma plugin that turns natural-language chat into real, 
 
 - Multiple conversations isolated per Figma file (up to 20 conversations × 50 messages each)
 - Configuration and history stored in Figma's local `clientStorage`
+- UI in Simplified Chinese, Traditional Chinese, and English, following the system language or a manual choice; built-in quick commands switch with the locale
 - Follows Figma light/dark theme; clear the current conversation or all data
 - Canvas writes are idempotent per `batchId`, so timeout retries never create duplicates
 
@@ -259,7 +260,6 @@ Vitest unit tests cover:
 
 - Supports Figma Design only — not FigJam or Slides
 - The model must support Tool Calls; without it, only plain-text chat is possible
-- The plugin UI is currently in Chinese
 - Conversation history is capped at 20 conversations × 50 messages per file; for storage size, persisted canvas operations keep only a count summary
 - Generation quality depends on the model and available context; task mode is recommended for complex pages
 - Replace the development plugin ID before publishing to the Figma Community

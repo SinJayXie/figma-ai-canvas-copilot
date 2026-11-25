@@ -4,6 +4,7 @@
  * 结果作为 Agent 步骤与正文提示展示，不阻塞应用。
  */
 import type { NodeOp } from '../../../types/node.types'
+import { t } from '../i18n'
 
 export interface LintIssue {
   message: string
@@ -72,17 +73,17 @@ export function lintOps(ops: NodeOp[], maxIssues = 6): LintIssue[] {
       const layout = op.layout
       if (layout && layout.mode && layout.mode !== 'none') {
         if (layout.gap != null && layout.gap > 0 && !isGrid(layout.gap)) {
-          report(`「${label}」间距 ${layout.gap} 不在 8pt 网格`)
+          report(t('LINT_GAP', { label, value: layout.gap }))
         }
         for (const padding of layout.padding ?? []) {
           if (padding > 0 && !isGrid(padding)) {
-            report(`「${label}」内边距 ${padding} 不在 8pt 网格`)
+            report(t('LINT_PADDING', { label, value: padding }))
             break
           }
         }
       }
       if ((op.cornerRadius ?? 0) > 0 && !isGrid(op.cornerRadius as number)) {
-        report(`「${label}」圆角 ${op.cornerRadius} 不在 8pt 网格`)
+        report(t('LINT_RADIUS', { label, value: op.cornerRadius }))
       }
       if (
         op.type === 'frame' &&
@@ -90,18 +91,18 @@ export function lintOps(ops: NodeOp[], maxIssues = 6): LintIssue[] {
         (op.height ?? 0) > 0 &&
         (op.height as number) < MIN_TOUCH_HEIGHT
       ) {
-        report(`「${label}」高度 ${op.height} 小于触控目标 ${MIN_TOUCH_HEIGHT}px`)
+        report(t('LINT_TOUCH_HEIGHT', { label, value: op.height, min: MIN_TOUCH_HEIGHT }))
       }
     }
 
     if (op.type === 'text' && op.fontSize && !TYPE_SCALE.has(op.fontSize)) {
-      report(`「${label}」字号 ${op.fontSize} 不在类型阶梯 12/14/16/20/24/32/48`)
+      report(t('LINT_FONT_SIZE', { label, value: op.fontSize }))
     }
 
     if (op.type === 'text' && op.textColor && parentFill) {
       const ratio = contrastRatio(op.textColor, parentFill)
       if (ratio != null && ratio < MIN_CONTRAST) {
-        report(`「${label}」文字对比度 ${ratio.toFixed(1)}:1 低于 ${MIN_CONTRAST}:1`)
+        report(t('LINT_CONTRAST', { label, value: ratio.toFixed(1), min: MIN_CONTRAST }))
       }
     }
 

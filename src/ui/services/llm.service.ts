@@ -7,6 +7,7 @@
  */
 import { parseExtraBody, resolveActiveModelEntry, type PluginConfig } from '../../../types/config.types'
 import type { ChatMessage, LlmStreamChunk, LlmTool, LlmUsage } from '../../../types/llm.types'
+import { t } from '../i18n'
 import { READ_CAPABILITIES, WRITE_CAPABILITIES } from './capabilities.service'
 
 /** 图层操作节点的内联 JSON Schema（简化版 NodeOp；children 用 object 描述递归，避免 JSON 循环引用） */
@@ -303,10 +304,7 @@ function assertSecureEndpoint(url: string): void {
   if (parsed.protocol !== 'http:') return
   const host = parsed.hostname.replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return
-  throw new Error(
-    `Figma 页面是 HTTPS，浏览器已拦截明文 HTTP 接口 ${parsed.origin}（Mixed Content）。` +
-      '请改用 https:// 地址，或把模型服务通过端口转发映射到 http://127.0.0.1:端口 后再填写。',
-  )
+  throw new Error(t('LLM_HTTP_BLOCKED', { origin: parsed.origin }))
 }
 
 /** 注册给模型的画布操作工具（spec：原生 Tool Call 协议） */
@@ -447,7 +445,7 @@ function extractProviderError(input: unknown): string {
     try {
       return extractProviderError(JSON.parse(input) as unknown)
     } catch {
-      return input.slice(0, 300) || '模型返回流式错误'
+      return input.slice(0, 300) || t('LLM_STREAM_ERROR')
     }
   }
   if (input && typeof input === 'object') {
@@ -459,7 +457,7 @@ function extractProviderError(input: unknown): string {
       if (typeof nested.message === 'string' && nested.message) return nested.message
     }
   }
-  return '模型返回流式错误'
+  return t('LLM_STREAM_ERROR')
 }
 
 class LLMService {
@@ -509,10 +507,10 @@ class LLMService {
     const modelId = activeModel.model.trim()
     const baseUrl = activeModel.baseUrl.trim().replace(/\/+$/, '')
     if (!modelId) {
-      throw new Error('未配置模型：请先在设置 → 模型中添加并选择一个模型')
+      throw new Error(t('LLM_MODEL_NOT_CONFIGURED'))
     }
     if (!baseUrl) {
-      throw new Error('当前模型未配置 Base URL：请到设置 → 模型中补充')
+      throw new Error(t('LLM_BASE_URL_MISSING'))
     }
     const url = `${baseUrl}/chat/completions`
     assertSecureEndpoint(url)
@@ -522,7 +520,7 @@ class LLMService {
     }
 
     const extra = parseExtraBody(generation.extraBody)
-    if (!extra.ok) throw new Error(`额外请求体 JSON 无效：${extra.error}`)
+    if (!extra.ok) throw new Error(t('LLM_INVALID_EXTRA_BODY', { error: extra.error }))
 
     let responseTimer: ReturnType<typeof setTimeout> | null = setTimeout(
       () => controller.abort(),
@@ -586,12 +584,14 @@ class LLMService {
       if ((error as Error)?.name === 'AbortError') {
         if (this.stopped) return { content: '', toolCalls: [], aborted: true }
         throw new LlmTransportError(
-          `LLM 请求超时（${Math.round(RESPONSE_TIMEOUT / 1000)}s 未响应）`,
+          t('LLM_REQUEST_TIMEOUT', { seconds: Math.round(RESPONSE_TIMEOUT / 1000) }),
           true,
         )
       }
       throw new LlmTransportError(
-        `请求失败：${error instanceof Error ? error.message : String(error)}`,
+        t('LLM_REQUEST_FAILED', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
         isNetworkError(error),
       )
     } finally {
@@ -603,13 +603,17 @@ class LLMService {
 
     if (!response.ok) {
       const bodyText = prefetchedErrorBody || (await response.text().catch(() => ''))
-      const detail = bodyText ? `：${bodyText.slice(0, 300)}` : ''
+      const detail = bodyText ? `: ${bodyText.slice(0, 300)}` : ''
       throw new LlmTransportError(
-        `LLM 请求失败（HTTP ${response.status} ${response.statusText}）${detail}`,
+        t('LLM_HTTP_ERROR', {
+          status: response.status,
+          statusText: response.statusText,
+          detail,
+        }),
         RETRYABLE_STATUS.has(response.status),
       )
     }
-    if (!response.body) throw new Error('LLM 响应缺少流式数据（response.body 为空）')
+    if (!response.body) throw new Error(t('LLM_BODY_EMPTY'))
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -712,11 +716,15 @@ class LLMService {
           return { content, toolCalls: collectPending(pending), reasoning, finishReason, aborted: true }
         }
         throw new LlmStreamError(
-          `LLM 流式响应超时（${Math.round(IDLE_TIMEOUT / 1000)}s 无新数据）`,
+          t('LLM_STREAM_TIMEOUT', { seconds: Math.round(IDLE_TIMEOUT / 1000) }),
         )
       }
       if (error instanceof LlmStreamError) throw error
-      throw new Error(`流式读取失败：${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        t('LLM_STREAM_READ_FAILED', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
     } finally {
       if (idleTimer) {
         clearTimeout(idleTimer)

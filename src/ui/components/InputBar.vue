@@ -3,8 +3,10 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { QuickCommandConfig, SendKey } from '../../../types/config.types'
 import { getProviderPreset, resolveActiveModelEntry, type ModelEntry } from '../../../types/config.types'
 import type { MessageAttachment } from '../../../types/llm.types'
-import { DEFAULT_QUICK_COMMANDS } from '../config/quickCommands'
+import { getBuiltinCommandId, getDefaultQuickCommands } from '../config/quickCommands'
 import { showToast } from '../composables/useToast'
+import { currentLocale, useT } from '../i18n'
+import { localizedProviderName } from '../i18n/providerNames'
 import { useChatStore, type ChatMsg } from '../store/chat'
 import { useConfigStore } from '../store/config'
 import { BUILTIN_SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS, IMAGE_TOKEN_ESTIMATE, MAX_HISTORY_ROUNDS, estimateTokens } from '../utils/promptBuilder'
@@ -28,6 +30,7 @@ const emit = defineEmits<{
 
 const configStore = useConfigStore()
 const chatStore = useChatStore()
+const t = useT()
 const draft = ref('')
 /** contenteditable 编辑器：指令 Tag 与文字在同一行内 */
 const editorRef = ref<HTMLElement | null>(null)
@@ -39,7 +42,7 @@ const showModelMenu = ref(false)
 /** 当前模型摘要（输入区快速切换展示） */
 const activeModel = computed(() => resolveActiveModelEntry(configStore.config))
 const activeModelName = computed(
-  () => activeModel.value.name || activeModel.value.model || '未配置模型',
+  () => activeModel.value.name || activeModel.value.model || t('NO_MODEL_CONFIGURED'),
 )
 
 /** 上下文窗口（输入侧）与输出上限：与请求侧取值口径保持一致（留空 = 默认预算） */
@@ -51,7 +54,7 @@ const outputLimit = computed(() => activeModel.value.generation.maxTokens)
 const imagesAllowed = computed(() => activeModel.value.generation.supportsImage)
 
 function providerName(entry: ModelEntry): string {
-  return getProviderPreset(entry.provider).name
+  return localizedProviderName(entry.provider)
 }
 
 /** 服务商要求 Key 但当前未填写时，在菜单里提示 */
@@ -65,8 +68,8 @@ function selectModel(id: string): void {
   if (!entry) return
   configStore.update({ activeModelId: entry.id, model: entry.model })
   showModelMenu.value = false
-  showToast(`已切换模型：${entry.name || entry.model}`, 'info', 1600)
-  void configStore.save().catch(() => showToast('模型切换未能保存', 'error'))
+  showToast(t('SWITCHED_MODEL', { name: entry.name || entry.model }), 'info', 1600)
+  void configStore.save().catch(() => showToast(t('MODEL_SWITCH_SAVE_FAILED'), 'error'))
 }
 
 function onManageModels(): void {
@@ -130,7 +133,7 @@ function renderEditor(): void {
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.contentEditable = 'false'
-    remove.setAttribute('aria-label', '移除指令')
+    remove.setAttribute('aria-label', t('REMOVE_COMMAND'))
     remove.className = 'text-[11px] leading-none opacity-60 hover:opacity-100'
     remove.textContent = '×'
     remove.addEventListener('mousedown', (event) => event.preventDefault())
@@ -236,7 +239,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('图片解析失败'))
+    image.onerror = () => reject(new Error(t('FAILED_TO_READ_IMAGE')))
     image.src = src
   })
 }
@@ -266,11 +269,11 @@ async function prepareImage(file: File): Promise<{ dataUrl: string; size: number
 async function addFile(file: File): Promise<void> {
   if (file.type.startsWith('image/')) {
     if (attachments.value.filter((item) => item.kind === 'image').length >= MAX_IMAGES) {
-      showToast(`最多添加 ${MAX_IMAGES} 张图片`, 'error')
+      showToast(t('UP_TO_IMAGES', { count: MAX_IMAGES }), 'error')
       return
     }
     if (file.size > MAX_IMAGE_FILE_BYTES) {
-      showToast(`图片「${file.name}」超过 8MB`, 'error')
+      showToast(t('IMAGE_EXCEEDS_8_MB', { name: file.name }), 'error')
       return
     }
     try {
@@ -278,30 +281,30 @@ async function addFile(file: File): Promise<void> {
       attachments.value.push({
         id: generateId('att'),
         kind: 'image',
-        name: file.name || '图片',
+        name: file.name || t('IMAGE'),
         mime: file.type || 'image/png',
         size,
         dataUrl,
       })
     } catch {
-      showToast(`图片「${file.name}」处理失败`, 'error')
+      showToast(t('FAILED_TO_PROCESS_IMAGE', { name: file.name }), 'error')
     }
     return
   }
 
   const textLike = file.type.startsWith('text/') || TEXT_FILE_PATTERN.test(file.name)
   if (!textLike) {
-    showToast(`暂不支持该文件类型：${file.name}`, 'error')
+    showToast(t('UNSUPPORTED_FILE_TYPE', { name: file.name }), 'error')
     return
   }
   if (file.size > MAX_TEXT_BYTES) {
-    showToast(`文本文件「${file.name}」超过 1MB`, 'error')
+    showToast(t('TEXT_FILE_EXCEEDS_1_MB', { name: file.name }), 'error')
     return
   }
   const raw = await readAsText(file)
   const text = raw.slice(0, MAX_TEXT_CHARS)
   if (raw.length > MAX_TEXT_CHARS) {
-    showToast(`「${file.name}」内容过长，已截断到 ${MAX_TEXT_CHARS} 字`, 'error')
+    showToast(t('FILE_TOO_LONG_TRUNCATED', { name: file.name, count: MAX_TEXT_CHARS }), 'error')
   }
   attachments.value.push({
     id: generateId('att'),
@@ -316,7 +319,7 @@ async function addFile(file: File): Promise<void> {
 async function addFiles(files: Iterable<File>): Promise<void> {
   for (const file of Array.from(files)) {
     if (attachments.value.length >= MAX_ATTACHMENTS) {
-      showToast(`最多添加 ${MAX_ATTACHMENTS} 个附件`, 'error')
+      showToast(t('UP_TO_ATTACHMENTS', { count: MAX_ATTACHMENTS }), 'error')
       break
     }
     await addFile(file)
@@ -342,22 +345,22 @@ function onDrop(event: DragEvent): void {
 /** 超长文本转 txt 附件（避免撑爆输入框与上下文） */
 function addPastedText(text: string): void {
   if (attachments.value.length >= MAX_ATTACHMENTS) {
-    showToast(`最多添加 ${MAX_ATTACHMENTS} 个附件`, 'error')
+    showToast(t('UP_TO_ATTACHMENTS', { count: MAX_ATTACHMENTS }), 'error')
     return
   }
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
   attachments.value.push({
     id: generateId('att'),
     kind: 'text',
-    name: `粘贴文本-${stamp}.txt`,
+    name: t('PASTED_TEXT_TXT', { stamp }),
     mime: 'text/plain',
     size: text.length,
     text: text.slice(0, MAX_TEXT_CHARS),
   })
   if (text.length > MAX_TEXT_CHARS) {
-    showToast(`粘贴内容超过 ${MAX_TEXT_CHARS} 字，已截断后转为 txt 附件`, 'error')
+    showToast(t('PASTED_TEXT_TRUNCATED_TO_FILE', { count: MAX_TEXT_CHARS }), 'error')
   } else {
-    showToast(`粘贴内容超过 ${MAX_DRAFT_CHARS} 字，已转为 txt 附件`, 'info')
+    showToast(t('PASTED_TEXT_CONVERTED_TO_FILE', { count: MAX_DRAFT_CHARS }), 'info')
   }
 }
 
@@ -412,11 +415,16 @@ function doSend(): void {
   renderEditor()
 }
 
-/** 内置 + 自定义指令合并；同名自定义覆盖内置 */
+/** 内置 + 自定义指令合并；自定义指令按稳定 id 覆盖内置（兼容任意语言的同名指令） */
 const QUICK_COMMANDS = computed<QuickCommandConfig[]>(() => {
   const merged = new Map<string, QuickCommandConfig>()
-  for (const cmd of DEFAULT_QUICK_COMMANDS) merged.set(cmd.label, cmd)
-  for (const cmd of configStore.config.customCommands ?? []) merged.set(cmd.label, cmd)
+  getDefaultQuickCommands(currentLocale()).forEach((cmd, index) => {
+    merged.set(`builtin:${index}`, { ...cmd, id: `builtin:${index}` })
+  })
+  for (const cmd of configStore.config.customCommands ?? []) {
+    const id = getBuiltinCommandId(cmd.label) ?? `custom:${cmd.label}`
+    merged.set(id, { ...cmd, id })
+  }
   return [...merged.values()]
 })
 
@@ -437,6 +445,17 @@ const commandDismissed = ref(false)
 const activeCommandIndex = ref(0)
 /** 已选中的指令：以 Tag 形式展示，发送时把模板拼到消息前面 */
 const selectedCommand = ref<QuickCommandConfig | null>(null)
+
+/** 语言切换后旧指令模板已不匹配当前语言，清空 Tag 让用户重新选择 */
+watch(
+  () => currentLocale(),
+  () => {
+    if (selectedCommand.value) {
+      selectedCommand.value = null
+      renderEditor()
+    }
+  },
+)
 
 const commandMenuOpen = computed(
   () => !commandDismissed.value && commandQuery.value !== null && filteredCommands.value.length > 0,
@@ -639,7 +658,7 @@ function formatTokenCount(value: number): string {
       <div class="relative shrink-0">
         <button
           type="button"
-          title="切换模型"
+          :title="t('SWITCH_MODEL')"
           aria-haspopup="listbox"
           :aria-expanded="showModelMenu"
           class="flex max-w-[150px] items-center gap-1 rounded-full bg-ios-blue/10 px-2.5 py-1 text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-blue/15 dark:bg-ios-blue-dark/15 dark:text-ios-blue-dark dark:hover:bg-ios-blue-dark/20"
@@ -691,17 +710,17 @@ function formatTokenCount(value: number): string {
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-1.5">
                   <span class="truncate text-[13px] font-medium text-figma-text dark:text-figma-text-dark">
-                    {{ entry.name || entry.model || '未命名模型' }}
+                    {{ entry.name || entry.model || t('UNTITLED_MODEL') }}
                   </span>
                   <span
                     v-if="needsKey(entry)"
                     class="shrink-0 rounded bg-ios-red/10 px-1 text-[10px] font-medium text-ios-red dark:bg-ios-red-dark/15 dark:text-ios-red-dark"
                   >
-                    缺 Key
+                    {{ t('MISSING_KEY') }}
                   </span>
                 </span>
                 <span class="block truncate text-[11px] text-ios-label-secondary dark:text-ios-label-secondary-dark">
-                  {{ providerName(entry) }} · {{ entry.model || '未填写模型 ID' }}
+                  {{ providerName(entry) }} · {{ entry.model || t('NO_MODEL_ID') }}
                 </span>
               </span>
             </button>
@@ -711,7 +730,7 @@ function formatTokenCount(value: number): string {
             class="w-full border-t border-figma-border px-3 py-2.5 text-left text-[12px] font-medium text-ios-blue transition-colors hover:bg-ios-fill dark:border-figma-border-dark dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
             @click="onManageModels"
           >
-            管理模型…
+            {{ t('MANAGE_MODELS') }}
           </button>
         </div>
       </div>
@@ -720,7 +739,7 @@ function formatTokenCount(value: number): string {
         class="relative ml-auto flex h-6 w-6 shrink-0 items-center justify-center"
         role="img"
         tabindex="0"
-        :aria-label="`上下文 ${formatTokenCount(contextTokens)} / ${formatTokenCount(contextBudget)} · ${contextPercent}%，${contextMeasured ? '实测' : '估算'}，输出上限 ${formatTokenCount(outputLimit)}`"
+        :aria-label="t('CONTEXT_OUTPUT_LIMIT', { used: formatTokenCount(contextTokens), budget: formatTokenCount(contextBudget), percent: contextPercent, source: contextMeasured ? t('MEASURED') : t('ESTIMATED'), limit: formatTokenCount(outputLimit) })"
         @mouseenter="showTokenTip = true"
         @mouseleave="showTokenTip = false"
         @focusin="showTokenTip = true"
@@ -757,7 +776,7 @@ function formatTokenCount(value: number): string {
           >
             <div>{{ formatTokenCount(contextTokens) }} / {{ formatTokenCount(contextBudget) }} · {{ contextPercent }}%</div>
             <div class="text-white/70 dark:text-black/60">
-              {{ contextMeasured ? '实测' : '估算' }} · 输出上限 {{ formatTokenCount(outputLimit) }}
+              {{ contextMeasured ? t('MEASURED') : t('ESTIMATED') }} · {{ t('OUTPUT_LIMIT', { limit: formatTokenCount(outputLimit) }) }}
             </div>
           </div>
         </Transition>
@@ -796,8 +815,8 @@ function formatTokenCount(value: number): string {
         </div>
         <button
           type="button"
-          title="移除附件"
-          aria-label="移除附件"
+          :title="t('REMOVE_ATTACHMENT')"
+          :aria-label="t('REMOVE_ATTACHMENT')"
           class="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ios-label-secondary text-white"
           @click="removeAttachment(att.id)"
         >
@@ -813,8 +832,8 @@ function formatTokenCount(value: number): string {
       <!-- 添加图片 / 文件 -->
       <button
         type="button"
-        title="添加图片或文件"
-        aria-label="添加图片或文件"
+        :title="t('ADD_IMAGE_OR_FILE')"
+        :aria-label="t('ADD_IMAGE_OR_FILE')"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ios-blue transition-colors hover:bg-ios-fill disabled:cursor-not-allowed disabled:opacity-40 dark:text-ios-blue-dark dark:hover:bg-ios-fill-dark"
         :disabled="generating"
         @click="openFilePicker"
@@ -865,7 +884,7 @@ function formatTokenCount(value: number): string {
           aria-multiline="true"
           class="input-editor w-full overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-transparent bg-ios-fill px-3 py-2 text-[13px] leading-5 text-figma-text outline-none transition-colors focus:border-ios-blue/30 focus:ring-2 focus:ring-ios-blue/20 dark:bg-ios-fill-dark dark:text-figma-text-dark dark:focus:border-ios-blue-dark/40 dark:focus:ring-ios-blue-dark/20"
           :class="{ 'is-empty': !draft && !selectedCommand }"
-          data-placeholder="描述你要设计的页面…（可粘贴图片，输入 / 使用快捷指令）"
+          :data-placeholder="t('CHAT_INPUT_PLACEHOLDER')"
           @input="onEditorInput"
           @keydown="onKeydown"
           @paste="onPaste"
@@ -876,7 +895,7 @@ function formatTokenCount(value: number): string {
       <button
         v-if="!generating"
         type="button"
-        title="发送"
+        :title="t('SEND')"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ios-blue text-white transition-colors hover:bg-ios-blue/90 disabled:cursor-not-allowed disabled:bg-ios-fill-secondary disabled:text-ios-label-tertiary dark:bg-ios-blue-dark dark:hover:bg-ios-blue-dark/90 dark:disabled:bg-ios-fill-secondary-dark dark:disabled:text-ios-label-tertiary-dark"
         :disabled="!draft.trim() && attachments.length === 0 && !selectedCommand"
         @click="doSend"
@@ -889,7 +908,7 @@ function formatTokenCount(value: number): string {
       <button
         v-else
         type="button"
-        title="停止生成"
+        :title="t('STOP_GENERATING')"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ios-red text-white transition-colors hover:bg-ios-red/90 dark:bg-ios-red-dark"
         @click="emit('stop')"
       >

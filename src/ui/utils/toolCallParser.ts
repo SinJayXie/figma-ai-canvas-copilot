@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import type { LlmToolCall } from '../../../types/llm.types'
 import type { NodeLayout, NodeOp, NodeType, TextAutoResize } from '../../../types/node.types'
+import { t } from '../i18n'
 
 /** 单次生成节点总数上限（PRD 5.2.1 约束） */
 export const MAX_NODE_COUNT = 300
@@ -22,11 +23,11 @@ export const DEFAULT_LAYOUT: NodeLayout = {
 }
 
 const NODE_TYPE_NAMES: Record<NodeType, string> = {
-  frame: 'Frame',
-  text: '文本',
-  rect: '矩形',
-  ellipse: '圆形',
-  line: '线条',
+  frame: 'FRAME',
+  text: 'TEXT',
+  rect: 'RECTANGLE',
+  ellipse: 'ELLIPSE',
+  line: 'LINE',
 }
 
 /** 模型输出的节点类型别名归一化（如 rectangle→rect、circle→ellipse） */
@@ -335,7 +336,7 @@ function trimMessage(text: string): string {
 
 /** 重试提示包装：标注第几次尝试，便于 Agent 拼入重试消息 */
 function withHint(error: string, retryLevel: number): ParseFailure {
-  return { error: retryLevel > 0 ? `${error}（第 ${retryLevel + 1} 次尝试）` : error }
+  return { error: retryLevel > 0 ? t('TOOL_RETRY_HINT', { error, attempt: retryLevel + 1 }) : error }
 }
 
 function toInput(call: LlmToolCall | ToolCallInput): ToolCallInput {
@@ -416,7 +417,7 @@ function normalizeOp(op: NodeOp, rawItem?: unknown): NodeOp {
   } else {
     // 仅 create 缺 id 时自动生成；update 缺 id 保留空串，由 parseToolCalls 报错重试
     if (!normalized.id) normalized.id = generateId()
-    if (!normalized.name) normalized.name = NODE_TYPE_NAMES[normalized.type] ?? '图层'
+    if (!normalized.name) normalized.name = t(NODE_TYPE_NAMES[normalized.type] ?? 'LAYER')
     // 填充兜底：rect / ellipse 用白色；frame 不填则保持透明（新建 frame 默认白底会遮挡背景）
     if (!normalized.fill && (normalized.type === 'rect' || normalized.type === 'ellipse')) {
       normalized.fill = '#FFFFFF'
@@ -468,12 +469,12 @@ export function parseToolCalls(
 ): ParseResult {
   const call = (toolCalls ?? []).map(toInput).find((item) => item.name)
   if (!call) {
-    return withHint('模型未返回任何 tool_calls，必须通过 create_ops / update_ops 工具交付画布操作', retryLevel)
+    return withHint(t('TOOL_REQUIRE_OPS'), retryLevel)
   }
 
   const kind = call.name === 'create_ops' ? 'create' : call.name === 'update_ops' ? 'update' : null
   if (!kind) {
-    return withHint(`未知的工具调用「${call.name}」，只支持 create_ops / update_ops`, retryLevel)
+    return withHint(t('UNKNOWN_TOOL_CALL', { name: call.name }), retryLevel)
   }
 
   let parsedArgs: unknown
@@ -481,7 +482,9 @@ export function parseToolCalls(
     parsedArgs = JSON.parse(call.args)
   } catch (error) {
     return withHint(
-      `tool_calls 参数不是合法 JSON：${trimMessage((error as Error)?.message ?? error)}`,
+      t('INVALID_TOOL_JSON', {
+        message: trimMessage((error as Error)?.message ?? error),
+      }),
       retryLevel,
     )
   }
@@ -489,32 +492,34 @@ export function parseToolCalls(
   // 兼容模型把 ops 数组直接作为顶层参数的情况
   const rawOps = Array.isArray(parsedArgs) ? parsedArgs : (parsedArgs as { ops?: unknown } | null)?.ops
   if (!Array.isArray(rawOps) || rawOps.length === 0) {
-    return withHint('tool_calls 参数缺少非空的 ops 数组，请输出 { "ops": [ ... ] }', retryLevel)
+    return withHint(t('TOOL_MISSING_OPS'), retryLevel)
   }
 
   const result = opsArraySchema.safeParse(rawOps)
   if (!result.success) {
     return withHint(
-      `ops 结构校验失败：${trimMessage(result.error.issues[0]?.message ?? '未知错误')}`,
+      t('TOOL_OPS_INVALID', {
+        message: trimMessage(result.error.issues[0]?.message ?? t('TOOL_UNKNOWN_ERROR')),
+      }),
       retryLevel,
     )
   }
   // 用 rawOps 规范化：update 需要判断哪些字段是模型显式给出的（result.data 已丢失该信息）
   const ops = normalizeOps(rawOps)
   if (ops.length === 0) {
-    return withHint('ops 数组中没有可用的操作元素', retryLevel)
+    return withHint(t('TOOL_NO_OPS'), retryLevel)
   }
 
   const total = countNodes(ops)
   if (total > MAX_NODE_COUNT) {
-    return withHint(`节点总数 ${total} 超过单次 ${MAX_NODE_COUNT} 上限，请拆分需求后分次生成`, retryLevel)
+    return withHint(t('NODE_COUNT_LIMIT', { total, max: MAX_NODE_COUNT }), retryLevel)
   }
 
   // update 操作必须携带原生图层 ID（修改时使用画布上下文传入的 ID）
   const badIndex = ops.findIndex((op) => op.action === 'update' && !op.id)
   if (badIndex >= 0) {
     return withHint(
-      `第 ${badIndex + 1} 个 update 操作缺少原生图层 ID，请使用画布上下文中提供的 ID`,
+      t('UPDATE_MISSING_ID', { index: badIndex + 1 }),
       retryLevel,
     )
   }
